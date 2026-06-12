@@ -1,0 +1,10 @@
+# macOS
+.DS_Store
+
+# Old proprietary Evernote/Skitch binary — behavioral reference only, never committed
+# (see plans/snapmark-design.md "Clean-room note" / README provenance section)
+Skitch.app/
+
+# SwiftPM / build artifacts
+.build/
+build/
