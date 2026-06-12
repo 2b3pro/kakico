@@ -4,19 +4,39 @@ import AppKit
 @main
 struct SnapmarkApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var controller = CanvasController()
 
     var body: some Scene {
         Window("Snapmark", id: "main") {
-            ContentView(controller: controller)
+            ContentView(controller: appDelegate.controller)
                 .frame(minWidth: 720, minHeight: 520)
         }
-        .commands { AppCommands(controller: controller) }
+        .commands { AppCommands(controller: appDelegate.controller) }
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    let controller = CanvasController()
+    private var pasteKeyMonitor: Any?
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // SwiftUI's bridged Edit ▸ Paste item swallows ⌘V without dispatching
+        // paste: down the AppKit responder chain, so intercept the key event
+        // before menu dispatch instead.
+        pasteKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self,
+                  event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
+                  event.charactersIgnoringModifiers?.lowercased() == "v" else { return event }
+            // Field editors and the inline text annotation editor are
+            // NSTextViews; let them handle ⌘V (text paste) themselves.
+            if NSApp.keyWindow?.firstResponder is NSTextView { return event }
+            let controller = self.controller
+            DispatchQueue.main.async { ExportService.confirmAndPasteImage(controller) }
+            return nil
+        }
+    }
 }
 
 struct AppCommands: Commands {
@@ -28,8 +48,9 @@ struct AppCommands: Commands {
                 .keyboardShortcut("o", modifiers: .command)
             Button("Open Snapmark Document…") { ExportService.openDocument(controller) }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
-            // ⇧⌘V — plain ⌘V must stay free for Edit ▸ Paste (inline text editing).
-            Button("Paste Image") { _ = controller.pasteImage() }
+            // ⇧⌘V kept as an explicit alias; plain ⌘V is handled by the key
+            // monitor in AppDelegate so it still reaches inline text editors.
+            Button("Paste Image") { ExportService.confirmAndPasteImage(controller) }
                 .keyboardShortcut("v", modifiers: [.command, .shift])
         }
         CommandGroup(replacing: .saveItem) {

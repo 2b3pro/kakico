@@ -47,7 +47,7 @@ struct EmptyState: View {
                 .foregroundStyle(.secondary)
             HStack {
                 Button("Open Image…") { ExportService.openPanel(controller) }
-                Button("Paste from Clipboard") { _ = controller.pasteImage() }
+                Button("Paste from Clipboard") { ExportService.confirmAndPasteImage(controller) }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

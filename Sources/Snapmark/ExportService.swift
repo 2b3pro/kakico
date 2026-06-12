@@ -56,6 +56,30 @@ enum ExportService {
         }
     }
 
+    /// Pastes an image from the clipboard, asking for confirmation first when a
+    /// document is already open. Returns true if a new image was loaded.
+    @discardableResult
+    static func confirmAndPasteImage(_ controller: CanvasController) -> Bool {
+        let pb = NSPasteboard.general
+        guard pb.canReadObject(forClasses: [NSImage.self], options: nil) else {
+            NSSound.beep()
+            return false
+        }
+        if controller.hasDocument {
+            let alert = NSAlert()
+            alert.messageText = "Replace the current image?"
+            alert.informativeText = "Pasting will replace the image you are editing. Unsaved annotations will be lost."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Replace")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        }
+        // End any in-progress inline text editing (fires textDidEndEditing →
+        // commitTextEditing) so the editor doesn't linger over the new document.
+        NSApp.keyWindow?.makeFirstResponder(nil)
+        return controller.pasteImage()
+    }
+
     static func openPanel(_ controller: CanvasController) {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image]
