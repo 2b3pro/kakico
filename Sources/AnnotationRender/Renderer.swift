@@ -1,0 +1,209 @@
+import Foundation
+import CoreGraphics
+import CoreImage
+import CoreText
+import ImageIO
+import UniformTypeIdentifiers
+import AnnotationModel
+
+/// Pure drawing pipeline shared by the on-screen canvas and file/clipboard
+/// export, so what you see equals what you get.
+public enum Renderer {
+
+    private static let ciContext = CIContext(options: [.useSoftwareRenderer: true])
+
+    /// Draws the base image plus every annotation into `ctx`. The context must
+    /// already be set up so that model coordinates (top-left origin, y-down)
+    /// map directly — see `flatten` / the canvas view for the CTM setup.
+    public static func draw(_ doc: Document, baseImage: CGImage?, in ctx: CGContext) {
+        let canvas = CGRect(origin: .zero, size: doc.canvasSize)
+        if let baseImage {
+            drawImage(baseImage, in: canvas, ctx: ctx)
+        }
+        for element in doc.elements {
+            draw(element, base: baseImage, canvasSize: doc.canvasSize, in: ctx)
+        }
+    }
+
+    /// Renders the document to a `CGImage`, honoring the crop rect, at `scale`.
+    public static func flatten(_ doc: Document, baseImage: CGImage?, scale: CGFloat = 1) -> CGImage? {
+        let out = doc.outputRect
+        let pixelW = Int((out.width * scale).rounded())
+        let pixelH = Int((out.height * scale).rounded())
+        guard pixelW > 0, pixelH > 0 else { return nil }
+
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        guard let ctx = CGContext(data: nil, width: pixelW, height: pixelH,
+                                  bitsPerComponent: 8, bytesPerRow: 0, space: cs,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return nil
+        }
+        // Map model space (top-left origin, y-down, cropped) into the bitmap
+        // (bottom-left origin, y-up).
+        ctx.scaleBy(x: scale, y: scale)
+        ctx.translateBy(x: 0, y: out.height)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.translateBy(x: -out.origin.x, y: -out.origin.y)
+
+        draw(doc, baseImage: baseImage, in: ctx)
+        return ctx.makeImage()
+    }
+
+    /// Encodes a CGImage to PNG or JPEG bytes.
+    public static func encode(_ image: CGImage, as type: UTType, jpegQuality: CGFloat = 0.9) -> Data? {
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, type.identifier as CFString, 1, nil) else {
+            return nil
+        }
+        let props: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: jpegQuality]
+        CGImageDestinationAddImage(dest, image, props as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return data as Data
+    }
+
+    // MARK: - Per-element drawing
+
+    private static func draw(_ element: Annotation, base: CGImage?, canvasSize: CGSize, in ctx: CGContext) {
+        switch element {
+        case .arrow(let e): drawArrow(e, in: ctx)
+        case .line(let e): drawLine(e, in: ctx)
+        case .rectangle(let e): drawRect(e, in: ctx)
+        case .ellipse(let e): drawEllipse(e, in: ctx)
+        case .text(let e): drawText(e, in: ctx)
+        case .stamp(let e): drawStamp(e, in: ctx)
+        case .pixelate(let e): drawRedaction(e.rect, pixelate: true, amount: e.amount, base: base, canvasSize: canvasSize, in: ctx)
+        case .blur(let e): drawRedaction(e.rect, pixelate: false, amount: e.amount, base: base, canvasSize: canvasSize, in: ctx)
+        }
+    }
+
+    /// `CGContext.draw` assumes a y-up space, but the renderer runs with a
+    /// y-down (model-space) CTM, which would mirror images vertically. Flip
+    /// locally around the rect so the image lands upright.
+    private static func drawImage(_ image: CGImage, in rect: CGRect, ctx: CGContext) {
+        ctx.saveGState()
+        ctx.translateBy(x: 0, y: rect.maxY + rect.minY)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(image, in: rect)
+        ctx.restoreGState()
+    }
+
+    private static func setStroke(_ ctx: CGContext, _ color: RGBAColor, _ width: CGFloat) {
+        ctx.setStrokeColor(red: color.r, green: color.g, blue: color.b, alpha: color.a)
+        ctx.setLineWidth(width)
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+    }
+
+    private static func drawLine(_ e: LineElement, in ctx: CGContext) {
+        setStroke(ctx, e.color, e.width)
+        ctx.beginPath()
+        ctx.move(to: e.start)
+        ctx.addLine(to: e.end)
+        ctx.strokePath()
+    }
+
+    private static func drawArrow(_ e: ArrowElement, in ctx: CGContext) {
+        setStroke(ctx, e.color, e.width)
+        // Shaft
+        ctx.beginPath()
+        ctx.move(to: e.start)
+        ctx.addLine(to: e.end)
+        ctx.strokePath()
+        // Head
+        let angle = atan2(e.end.y - e.start.y, e.end.x - e.start.x)
+        let headLength = max(14, e.width * 3.2)
+        let spread = CGFloat.pi / 7
+        let p1 = CGPoint(x: e.end.x - headLength * cos(angle - spread),
+                         y: e.end.y - headLength * sin(angle - spread))
+        let p2 = CGPoint(x: e.end.x - headLength * cos(angle + spread),
+                         y: e.end.y - headLength * sin(angle + spread))
+        ctx.setFillColor(red: e.color.r, green: e.color.g, blue: e.color.b, alpha: e.color.a)
+        ctx.beginPath()
+        ctx.move(to: e.end)
+        ctx.addLine(to: p1)
+        ctx.addLine(to: p2)
+        ctx.closePath()
+        ctx.fillPath()
+    }
+
+    private static func drawRect(_ e: ShapeElement, in ctx: CGContext) {
+        if let fill = e.fill {
+            ctx.setFillColor(red: fill.r, green: fill.g, blue: fill.b, alpha: fill.a)
+            ctx.fill(e.rect)
+        }
+        setStroke(ctx, e.color, e.width)
+        ctx.stroke(e.rect)
+    }
+
+    private static func drawEllipse(_ e: ShapeElement, in ctx: CGContext) {
+        if let fill = e.fill {
+            ctx.setFillColor(red: fill.r, green: fill.g, blue: fill.b, alpha: fill.a)
+            ctx.fillEllipse(in: e.rect)
+        }
+        setStroke(ctx, e.color, e.width)
+        ctx.strokeEllipse(in: e.rect)
+    }
+
+    private static func drawText(_ e: TextElement, in ctx: CGContext) {
+        guard !e.string.isEmpty else { return }
+        let traits: CTFontSymbolicTraits = e.font.bold ? .traitBold : []
+        let base = CTFontCreateWithName(e.font.family as CFString, e.font.pointSize, nil)
+        let font = CTFontCreateCopyWithSymbolicTraits(base, e.font.pointSize, nil, traits, traits) ?? base
+        let color = CGColor(red: e.color.r, green: e.color.g, blue: e.color.b, alpha: e.color.a)
+        let attrs: [NSAttributedString.Key: Any] = [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): color,
+        ]
+        let attr = NSAttributedString(string: e.string, attributes: attrs)
+        let framesetter = CTFramesetterCreateWithAttributedString(attr)
+        let path = CGPath(rect: e.boundingBox(), transform: nil)
+        let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: 0), path, nil)
+
+        // Text box is in y-down model space; flip locally so glyphs are upright.
+        ctx.saveGState()
+        let box = e.boundingBox()
+        ctx.translateBy(x: 0, y: box.maxY + box.minY)
+        ctx.scaleBy(x: 1, y: -1)
+        CTFrameDraw(frame, ctx)
+        ctx.restoreGState()
+    }
+
+    private static func drawStamp(_ e: StampElement, in ctx: CGContext) {
+        let path = StampPaths.path(for: e.kind, in: e.rect)
+        ctx.setFillColor(red: e.color.r, green: e.color.g, blue: e.color.b, alpha: e.color.a)
+        ctx.addPath(path)
+        ctx.fillPath()
+    }
+
+    private static func drawRedaction(_ rect: CGRect, pixelate: Bool, amount: CGFloat,
+                                      base: CGImage?, canvasSize: CGSize, in ctx: CGContext) {
+        guard let base, rect.width > 1, rect.height > 1 else {
+            // Fallback: opaque gray block if no base image is available.
+            ctx.setFillColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1)
+            ctx.fill(rect)
+            return
+        }
+        // CIImage is y-up; convert the y-down model rect into image space.
+        let ciImage = CIImage(cgImage: base)
+        let flippedY = canvasSize.height - rect.maxY
+        let ciRect = CGRect(x: rect.minX, y: flippedY, width: rect.width, height: rect.height)
+
+        let clamped = ciImage.clampedToExtent()
+        let filtered: CIImage
+        if pixelate {
+            let f = CIFilter(name: "CIPixellate")!
+            f.setValue(clamped, forKey: kCIInputImageKey)
+            f.setValue(max(2, amount), forKey: kCIInputScaleKey)
+            f.setValue(CIVector(x: ciRect.midX, y: ciRect.midY), forKey: kCIInputCenterKey)
+            filtered = f.outputImage!
+        } else {
+            let f = CIFilter(name: "CIGaussianBlur")!
+            f.setValue(clamped, forKey: kCIInputImageKey)
+            f.setValue(max(1, amount), forKey: kCIInputRadiusKey)
+            filtered = f.outputImage!
+        }
+        let cropped = filtered.cropped(to: ciRect)
+        guard let out = ciContext.createCGImage(cropped, from: ciRect) else { return }
+        drawImage(out, in: rect, ctx: ctx)
+    }
+}

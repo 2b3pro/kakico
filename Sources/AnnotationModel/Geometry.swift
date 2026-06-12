@@ -1,0 +1,77 @@
+import Foundation
+import CoreGraphics
+
+/// Model coordinate space is image pixel space with a top-left origin and y
+/// increasing downward. The renderer is responsible for mapping this into a
+/// drawing context.
+
+public struct RGBAColor: Codable, Equatable, Sendable {
+    public var r: Double
+    public var g: Double
+    public var b: Double
+    public var a: Double
+
+    public init(r: Double, g: Double, b: Double, a: Double = 1) {
+        self.r = r; self.g = g; self.b = b; self.a = a
+    }
+
+    public static let red = RGBAColor(r: 0.90, g: 0.16, b: 0.22)
+    public static let yellow = RGBAColor(r: 1.0, g: 0.80, b: 0.0)
+    public static let green = RGBAColor(r: 0.16, g: 0.70, b: 0.30)
+    public static let blue = RGBAColor(r: 0.0, g: 0.48, b: 1.0)
+    public static let black = RGBAColor(r: 0, g: 0, b: 0)
+    public static let white = RGBAColor(r: 1, g: 1, b: 1)
+}
+
+public struct FontSpec: Codable, Equatable, Sendable {
+    public var family: String
+    public var pointSize: Double
+    public var bold: Bool
+
+    public init(family: String = "Helvetica Neue", pointSize: Double = 28, bold: Bool = true) {
+        self.family = family
+        self.pointSize = pointSize
+        self.bold = bold
+    }
+}
+
+/// A reference to the base image. Either an absolute file path or PNG bytes
+/// embedded in the document package.
+public enum ImageRef: Codable, Equatable, Sendable {
+    case file(path: String)
+    case pngData(Data)
+}
+
+public enum GeometryMath {
+    /// Shortest distance from point `p` to the line segment `a`–`b`.
+    public static func distance(from p: CGPoint, toSegment a: CGPoint, _ b: CGPoint) -> CGFloat {
+        let dx = b.x - a.x
+        let dy = b.y - a.y
+        let lengthSquared = dx * dx + dy * dy
+        if lengthSquared == 0 {
+            return hypot(p.x - a.x, p.y - a.y)
+        }
+        var t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSquared
+        t = max(0, min(1, t))
+        let projX = a.x + t * dx
+        let projY = a.y + t * dy
+        return hypot(p.x - projX, p.y - projY)
+    }
+}
+
+extension CGRect {
+    /// A rect built from two arbitrary corner points (handles negative drags).
+    public init(corner a: CGPoint, _ b: CGPoint) {
+        self.init(x: min(a.x, b.x),
+                  y: min(a.y, b.y),
+                  width: abs(b.x - a.x),
+                  height: abs(b.y - a.y))
+    }
+
+    public var corners: (topLeft: CGPoint, topRight: CGPoint, bottomLeft: CGPoint, bottomRight: CGPoint) {
+        (CGPoint(x: minX, y: minY),
+         CGPoint(x: maxX, y: minY),
+         CGPoint(x: minX, y: maxY),
+         CGPoint(x: maxX, y: maxY))
+    }
+}
