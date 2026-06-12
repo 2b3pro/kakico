@@ -1,9 +1,9 @@
-# Native Apple Silicon screenshot-annotation app (working name: **Snapmark**) — Design
+# Kakico — Design
 
-> Working name `Snapmark` is a placeholder — rename freely. The product is **not** called "Skitch".
+> The product is **not** affiliated with or derived from Skitch.
 
 > **Status: ✅ implemented (2026-06-12).** All phases (0–4) plus optional stamps are done;
-> see `Snapmark/` and the *Implementation status* section at the bottom for what shipped
+> see `Sources/Kakico/` and the *Implementation status* section at the bottom for what shipped
 > and where it deviates from this design.
 
 ## Context
@@ -50,9 +50,9 @@ The Swift model below is an independent design for a generic annotation editor.
 ## Layout
 
 ```
-Snapmark.xcodeproj
-SnapmarkApp/
-  App/        SnapmarkApp.swift (@main), AppDelegate, menus/commands
+Kakico.xcodeproj
+KakicoApp/
+  App/        KakicoApp.swift (@main), AppDelegate, menus/commands
   Canvas/     CanvasView.swift (AppKit NSView: mouse tracking, handles, selection/crop overlay)
   Toolbar/    tool palette + color/stroke/font inspector (SwiftUI)
   Export/     ExportService.swift (CGImageDestination, NSPasteboard, NSFilePromiseProvider)
@@ -94,7 +94,7 @@ Geometry via a protocol on the view-model side (keep the model pure):
 - Hit-test: distance-to-segment for vectors; edge-band/area for shapes; bbox for text/stamp; topmost-first (reversed iteration).
 - `CanvasViewModel` (`@Observable`) holds document + selection + `UndoManager`; undo = element-array snapshot.
 - Model in **image pixel space**; canvas applies one zoom/offset transform.
-- Native save format: own `.snapmark` JSON package (`document.json` + embedded `base.png`).
+- Native save format: own `.kakico` JSON package (`document.json` + embedded `base.png`).
 
 ## Rendering & export (`AnnotationRender`)
 
@@ -124,7 +124,7 @@ One pure renderer used by both screen and export so WYSIWYG holds:
 - ✅ **Phase 1 — MVP (5–8d):** Open image (File → Open, drag-drop, paste) → **Arrow + Text** tools → select/move/resize via handles → undo/redo → flatten → export PNG/JPEG + copy to clipboard. Color + stroke-width inspector, inline `NSTextView` text editing, selection overlay/handles. *First genuinely useful build.*
 - ✅ **Phase 2 — Shapes (3–4d):** Rectangle, ellipse, line (reuse the vector/handle machinery from Phase 1).
 - ✅ **Phase 3 — Redaction (2–3d):** Pixelate + blur via Core Image.
-- ✅ **Phase 4 — Crop + drag-out (4–6d):** Crop widget + marching ants, `NSFilePromiseProvider` drag-out, native `.snapmark` save/open.
+- ✅ **Phase 4 — Crop + drag-out (4–6d):** Crop widget + marching ants, `NSFilePromiseProvider` drag-out, native `.kakico` save/open.
 - ✅ **Stamps (optional, 2–3d):** done with **original** vector stamp art (`StampPaths.swift` — check / cross / star / exclaim / heart; no PNG reuse).
 
 **Total: ~2.5–3.5 weeks. First demoable, useful build ~1.5–2 weeks (end of Phase 1).**
@@ -136,8 +136,8 @@ One pure renderer used by both screen and export so WYSIWYG holds:
   - Phase 1: build & launch, open a test PNG, drop an arrow + text, move/resize handles, undo/redo, Export PNG and Copy → paste into another app; confirm exported image matches on-screen.
   - Phase 2: each shape draws and re-edits via handles.
   - Phase 3: pixelate/blur visibly redacts a region and survives export.
-  - Phase 4: crop changes export bounds and is re-editable; drag-out drops a PNG into Finder/Slack/Mail; `.snapmark` save then reopen restores all elements + crop.
-- **Native check:** `lipo -archs <app>/Contents/MacOS/Snapmark` reports `arm64`; running process arch is arm64 (not Rosetta). `codesign --verify` passes for the ad-hoc signature.
+  - Phase 4: crop changes export bounds and is re-editable; drag-out drops a PNG into Finder/Slack/Mail; `.kakico` save then reopen restores all elements + crop.
+- **Native check:** `lipo -archs <app>/Contents/MacOS/Kakico` reports `arm64`; running process arch is arm64 (not Rosetta). `codesign --verify` passes for the ad-hoc signature.
 
 ## Appendix — recovered behavioral reference (NOT source)
 
@@ -160,7 +160,7 @@ existed. No code/art/format is copied from these.
 
 ## Implementation status (2026-06-12)
 
-Everything above is implemented in `Snapmark/`. Verified: `swift test` all green
+Everything above is implemented in `Kakico/`. Verified: `swift test` all green
 (9 model + 10 render/E2E tests), `scripts/build-app.sh release` produces an
 ad-hoc-signed bundle (`codesign --verify` passes, `lipo` reports `arm64`), and the app
 was launched natively (proc_translated = 0) and exercised end-to-end.
@@ -168,13 +168,13 @@ was launched natively (proc_translated = 0) and exercised end-to-end.
 ### Deviations from this design (intentional)
 
 - **SwiftPM instead of an Xcode project.** A single `Package.swift` builds the two
-  libraries + the executable; `scripts/build-app.sh` assembles `build/Snapmark.app`
+  libraries + the executable; `scripts/build-app.sh` assembles `build/Kakico.app`
   (Info.plist, PkgInfo, ad-hoc signing). No asset catalog — all icons are SF Symbols
   and stamps are code-drawn `CGPath`s, so none was needed.
 - **Canvas drawing is plain CG `draw(_:)`** (the "start with" option). No
   CALayer-per-element; marching ants are a timer-driven dash phase rather than an
   animated `CAShapeLayer`. Performance is fine at current scope.
-- **`.snapmark` is a single JSON file** (base image embedded as PNG `Data`), not a
+- **`.kakico` is a single JSON file** (base image embedded as PNG `Data`), not a
   `document.json` + `base.png` package directory.
 - **Paste Image is ⇧⌘V**, not ⌘V — plain ⌘V must stay free for Edit ▸ Paste so the
   inline `NSTextView` text editor works.

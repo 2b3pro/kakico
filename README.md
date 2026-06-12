@@ -1,9 +1,8 @@
-# Snapmark
+# Kakico
 
 A native **Apple Silicon (arm64)** screenshot-annotation app for macOS, written in
 Swift (SwiftUI shell + AppKit canvas, Core Graphics / Core Image rendering).
 
-> `Snapmark` is a working name — rename freely.
 
 ## What it does
 
@@ -16,7 +15,7 @@ Open or paste an image, mark it up, and export:
   dragging it around; `Return` applies it destructively (undoable), `Esc` cancels.
   Export honors a pending crop without applying it.
 - **Output:** export PNG/JPEG, copy to clipboard, drag-out as a PNG file
-  (`NSFilePromiseProvider`), and a self-contained `.snapmark` document format
+  (`NSFilePromiseProvider`), and a self-contained `.kakico` document format
   (JSON + embedded base image).
 
 Screen capture is intentionally out of scope — feed it images from macOS's built-in
@@ -26,8 +25,8 @@ Screenshot (⇧⌘4), Finder drag-drop, or paste.
 
 ```sh
 swift test                       # run unit tests (model + renderer)
-./scripts/build-app.sh release   # build & assemble an ad-hoc-signed Snapmark.app
-open build/Snapmark.app
+./scripts/build-app.sh release   # build & assemble an ad-hoc-signed Kakico.app
+open build/Kakico.app
 ```
 
 Requirements: macOS 13+, Xcode/Swift toolchain. The build script produces a native
@@ -40,7 +39,7 @@ arm64, ad-hoc-signed bundle (no Apple Developer account required).
 - `AnnotationRender` (SwiftPM library) — one pure renderer used by both the on-screen
   canvas and file/clipboard export, so what you see equals what you get; pixelate/blur
   via Core Image.
-- `Snapmark` (executable) — SwiftUI app shell + AppKit `CanvasNSView` (mouse tracking,
+- `Kakico` (executable) — SwiftUI app shell + AppKit `CanvasNSView` (mouse tracking,
   handles, crop overlay, inline text editing) + export/clipboard/drag-out services.
 
 ## Provenance / clean-room notice

@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Snapmark</string>
+    <string>Kakico</string>
     <key>CFBundleDisplayName</key>
-    <string>Snapmark</string>
+    <string>Kakico</string>
     <key>CFBundleExecutable</key>
-    <string>Snapmark</string>
+    <string>Kakico</string>
     <key>CFBundleIdentifier</key>
-    <string>com.example.snapmark</string>
+    <string>com.example.kakico</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundlePackageType</key>
@@ -40,12 +40,12 @@
         </dict>
         <dict>
             <key>CFBundleTypeName</key>
-            <string>Snapmark Document</string>
+            <string>Kakico Document</string>
             <key>CFBundleTypeRole</key>
             <string>Editor</string>
             <key>CFBundleTypeExtensions</key>
             <array>
-                <string>snapmark</string>
+                <string>kakico</string>
             </array>
         </dict>
     </array>

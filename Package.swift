@@ -2,10 +2,10 @@
 import PackageDescription
 
 let package = Package(
-    name: "Snapmark",
+    name: "Kakico",
     platforms: [.macOS(.v13)],
     products: [
-        .executable(name: "Snapmark", targets: ["Snapmark"]),
+        .executable(name: "Kakico", targets: ["Kakico"]),
         .library(name: "AnnotationModel", targets: ["AnnotationModel"]),
         .library(name: "AnnotationRender", targets: ["AnnotationRender"]),
     ],
@@ -13,7 +13,7 @@ let package = Package(
         .target(name: "AnnotationModel"),
         .target(name: "AnnotationRender", dependencies: ["AnnotationModel"]),
         .executableTarget(
-            name: "Snapmark",
+            name: "Kakico",
             dependencies: ["AnnotationModel", "AnnotationRender"]
         ),
         .testTarget(name: "AnnotationModelTests", dependencies: ["AnnotationModel"]),

@@ -2,11 +2,11 @@ import SwiftUI
 import AppKit
 
 @main
-struct SnapmarkApp: App {
+struct KakicoApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        Window("Snapmark", id: "main") {
+        Window("Kakico", id: "main") {
             ContentView(controller: appDelegate.controller)
                 .frame(minWidth: 720, minHeight: 520)
         }
@@ -46,7 +46,7 @@ struct AppCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("Open Image…") { ExportService.openPanel(controller) }
                 .keyboardShortcut("o", modifiers: .command)
-            Button("Open Snapmark Document…") { ExportService.openDocument(controller) }
+            Button("Open Kakico Document…") { ExportService.openDocument(controller) }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
             // ⇧⌘V kept as an explicit alias; plain ⌘V is handled by the key
             // monitor in AppDelegate so it still reaches inline text editors.
@@ -54,7 +54,7 @@ struct AppCommands: Commands {
                 .keyboardShortcut("v", modifiers: [.command, .shift])
         }
         CommandGroup(replacing: .saveItem) {
-            Button("Save Snapmark Document…") { ExportService.saveDocument(controller) }
+            Button("Save Kakico Document…") { ExportService.saveDocument(controller) }
                 .keyboardShortcut("s", modifiers: .command)
                 .disabled(!controller.hasDocument)
             Button("Export Image…") { ExportService.exportPanel(controller) }

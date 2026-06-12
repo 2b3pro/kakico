@@ -90,13 +90,13 @@ enum ExportService {
         }
     }
 
-    // MARK: Native document format (.snapmark — JSON package with embedded PNG)
+    // MARK: Native document format (.kakico — JSON package with embedded PNG)
 
     static func saveDocument(_ controller: CanvasController) {
         guard var doc = controller.document, let cg = controller.baseImage else { NSSound.beep(); return }
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "snapmark") ?? .json]
-        panel.nameFieldStringValue = "untitled.snapmark"
+        panel.allowedContentTypes = [UTType(filenameExtension: "kakico") ?? .json]
+        panel.nameFieldStringValue = "untitled.kakico"
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             // Embed the base image so the document is self-contained.
@@ -114,7 +114,7 @@ enum ExportService {
 
     static func openDocument(_ controller: CanvasController) {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "snapmark") ?? .json]
+        panel.allowedContentTypes = [UTType(filenameExtension: "kakico") ?? .json]
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             do {
