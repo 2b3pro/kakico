@@ -21,7 +21,7 @@ private class MinimalTextView: NSTextView {
 // MARK: - SwiftUI bridge
 
 struct CanvasView: NSViewRepresentable {
-    @ObservedObject var controller: CanvasController
+    var controller: CanvasController
 
     func makeNSView(context: Context) -> CanvasNSView {
         let view = CanvasNSView()
@@ -194,9 +194,11 @@ final class CanvasNSView: NSView {
     private func updateAntsTimer(cropVisible: Bool) {
         if cropVisible, antsTimer == nil {
             let timer = Timer(timeInterval: 1.0 / 12, repeats: true) { [weak self] _ in
-                guard let self else { return }
-                self.antsPhase += 1
-                self.needsDisplay = true
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.antsPhase += 1
+                    self.needsDisplay = true
+                }
             }
             RunLoop.main.add(timer, forMode: .common)
             antsTimer = timer
