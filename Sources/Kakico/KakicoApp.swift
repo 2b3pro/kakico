@@ -1,6 +1,16 @@
 import SwiftUI
 import AppKit
 
+let blockedMenuTitles: Set<String> = [
+    "Writing Tools", "AutoFill",
+    "Start Dictation\u{2026}", "Emoji & Symbols",
+]
+let blockedMenuActions: Set<Selector> = [
+    #selector(NSApplication.orderFrontCharacterPalette(_:)),
+    NSSelectorFromString("startDictation:"),
+    NSSelectorFromString("orderFrontWritingTools:"),
+]
+
 @main
 struct KakicoApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -18,6 +28,7 @@ struct KakicoApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let controller = CanvasController()
     private var pasteKeyMonitor: Any?
+    private var editMenuDelegate: EditMenuFilter?
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
@@ -35,6 +46,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let controller = self.controller
             DispatchQueue.main.async { ExportService.confirmAndPasteImage(controller) }
             return nil
+        }
+
+        DispatchQueue.main.async {
+            if let editMenu = NSApp.mainMenu?.items
+                .first(where: { $0.submenu?.items.contains(where: { $0.action == #selector(NSText.cut(_:)) }) == true })?.submenu {
+                self.editMenuDelegate = EditMenuFilter()
+                editMenu.delegate = self.editMenuDelegate
+            }
+        }
+    }
+}
+
+private class EditMenuFilter: NSObject, NSMenuDelegate {
+    func menuWillOpen(_ menu: NSMenu) {
+        for item in menu.items {
+            guard !item.isSeparatorItem else { continue }
+            if let action = item.action {
+                item.isHidden = blockedMenuActions.contains(action)
+            } else {
+                item.isHidden = blockedMenuTitles.contains(item.title)
+            }
+        }
+        var trailingEdge = true
+        for item in menu.items.reversed() {
+            if trailingEdge, item.isSeparatorItem { item.isHidden = true }
+            else if !item.isHidden { trailingEdge = false }
+        }
+        var leadingEdge = true
+        for item in menu.items {
+            if leadingEdge, item.isSeparatorItem { item.isHidden = true }
+            else if !item.isHidden { leadingEdge = false }
         }
     }
 }

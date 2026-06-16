@@ -4,6 +4,20 @@ import CoreGraphics
 import AnnotationModel
 import AnnotationRender
 
+private class MinimalTextView: NSTextView {
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        menu.items.removeAll { item in
+            if let action = item.action {
+                return blockedMenuActions.contains(action)
+            }
+            return blockedMenuTitles.contains(item.title)
+        }
+        while menu.items.last?.isSeparatorItem == true { menu.removeItem(at: menu.items.count - 1) }
+        while menu.items.first?.isSeparatorItem == true { menu.removeItem(at: 0) }
+    }
+}
+
 // MARK: - SwiftUI bridge
 
 struct CanvasView: NSViewRepresentable {
@@ -292,12 +306,8 @@ final class CanvasNSView: NSView {
             new = .rectangle(ShapeElement(rect: zeroRect, color: color, width: width))
         case .ellipse:
             new = .ellipse(ShapeElement(rect: zeroRect, color: color, width: width))
-        case .stamp:
-            new = .stamp(StampElement(rect: zeroRect, kind: controller.stampKind, color: color))
         case .pixelate:
             new = .pixelate(RedactionElement(rect: zeroRect, amount: RedactionElement.defaultPixelateAmount))
-        case .blur:
-            new = .blur(RedactionElement(rect: zeroRect, amount: RedactionElement.defaultBlurAmount))
         default:
             return
         }
@@ -400,7 +410,7 @@ final class CanvasNSView: NSView {
               case .text(let text) = element else { return }
         commitTextEditing()
 
-        let tv = NSTextView(frame: viewRect(forModelRect: element.boundingBox()).insetBy(dx: -2, dy: -2))
+        let tv = MinimalTextView(frame: viewRect(forModelRect: element.boundingBox()).insetBy(dx: -2, dy: -2))
         tv.string = text.string
         tv.font = nsFont(for: text.font, scale: displayScale)
         tv.textColor = nsColor(text.color)
