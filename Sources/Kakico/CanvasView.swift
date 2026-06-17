@@ -237,36 +237,35 @@ final class CanvasNSView: NSView {
 
         switch controller.tool {
         case .select:
-            handleSelectMouseDown(at: p, viewPoint: viewPoint)
+            handlePointerMouseDown(at: p, creationTool: nil)
         case .crop:
             handleCropMouseDown(at: p, viewPoint: viewPoint)
-        case .text:
-            createText(at: p)
         default:
-            createElement(tool: controller.tool, at: p)
+            handlePointerMouseDown(at: p, creationTool: controller.tool)
         }
         refresh()
     }
 
-    private func handleSelectMouseDown(at p: CGPoint, viewPoint: CGPoint) {
+    /// Shared pointer handling for `select` and creation tools. A handle on the
+    /// current selection resizes; a body hit selects and moves. On empty space
+    /// `select` clears the selection, while a creation tool creates a new element.
+    /// The active tool is never changed.
+    private func handlePointerMouseDown(at p: CGPoint, creationTool: Tool?) {
         guard let controller, let doc = controller.document else { return }
-        // Handle grab on the current selection first.
-        if let sel = controller.selection, let element = doc.elements.first(where: { $0.id == sel }) {
-            for handle in element.handles() {
-                if hypot(modelToView(handle.position).x - viewPoint.x,
-                         modelToView(handle.position).y - viewPoint.y) <= 8 {
-                    drag = .handle(sel, handle.role)
-                    return
-                }
+        switch doc.resolvePointer(at: p, selection: controller.selection,
+                                  bodyTolerance: modelTolerance, handleTolerance: modelTolerance) {
+        case .handle(let id, let role):
+            drag = .handle(id, role)
+        case .body(let id):
+            controller.selection = id
+            drag = .moving(id, last: p)
+        case .empty:
+            guard let tool = creationTool else {
+                controller.selection = nil
+                drag = .none
+                return
             }
-        }
-        // Otherwise select / start moving the topmost hit element.
-        if let hit = doc.hitTest(p, tolerance: modelTolerance) {
-            controller.selection = hit
-            drag = .moving(hit, last: p)
-        } else {
-            controller.selection = nil
-            drag = .none
+            if tool == .text { createText(at: p) } else { createElement(tool: tool, at: p) }
         }
     }
 
