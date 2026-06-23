@@ -13,6 +13,18 @@ final class CanvasController {
     var tool: Tool = .arrow
     var strokeColor: RGBAColor = .red
     var strokeWidth: CGFloat = 6
+    private static let exportBoundsKey = "exportBounds"
+    var exportBounds: ExportBounds = {
+        if let raw = UserDefaults.standard.string(forKey: CanvasController.exportBoundsKey),
+           let value = ExportBounds(rawValue: raw) {
+            return value
+        }
+        return .expandToFit
+    }() {
+        didSet {
+            UserDefaults.standard.set(exportBounds.rawValue, forKey: Self.exportBoundsKey)
+        }
+    }
     private(set) var sourceURL: URL?
 
     /// Undo unit: the document plus the base image (destructive crop swaps the

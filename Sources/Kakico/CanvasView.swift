@@ -38,7 +38,12 @@ struct CanvasView: NSViewRepresentable {
 // MARK: - AppKit canvas
 
 final class CanvasNSView: NSView {
-    weak var controller: CanvasController?
+    weak var controller: CanvasController? {
+        didSet {
+            guard controller !== oldValue else { return }
+            startObserving()
+        }
+    }
 
     private enum Drag {
         case none
@@ -54,6 +59,7 @@ final class CanvasNSView: NSView {
     // (document sans crop + base image) actually changes, not on every redraw.
     private var flattenedKey: Document?
     private var flattenedBase: CGImage?
+    private var flattenedBounds: ExportBounds?
     private var textEditor: NSTextView?
     private var editingTextID: ElementID?
     private var antsTimer: Timer?
@@ -74,72 +80,106 @@ final class CanvasNSView: NSView {
         needsDisplay = true
     }
 
+    private func startObserving() {
+        guard let controller else { return }
+        withObservationTracking {
+            _ = controller.document
+            _ = controller.baseImage
+            _ = controller.selection
+            _ = controller.exportBounds
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.refresh()
+                self?.startObserving()
+            }
+        }
+    }
+
     // MARK: Coordinate mapping
 
-    private var canvasSize: CGSize { controller?.document?.canvasSize ?? .zero }
+    private struct DisplayInfo {
+        let canvas: CGRect
+        let scale: CGFloat
+        let rect: CGRect
 
-    private var displayScale: CGFloat {
-        let s = canvasSize
-        guard s.width > 0, s.height > 0 else { return 1 }
-        return min(bounds.width / s.width, bounds.height / s.height)
+        func modelToView(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: rect.minX + (p.x - canvas.origin.x) * scale,
+                    y: rect.minY + (canvas.height - (p.y - canvas.origin.y)) * scale)
+        }
+
+        func viewToModel(_ p: CGPoint) -> CGPoint {
+            guard scale > 0 else { return .zero }
+            return CGPoint(x: canvas.origin.x + (p.x - rect.minX) / scale,
+                           y: canvas.origin.y + canvas.height - (p.y - rect.minY) / scale)
+        }
+
+        var modelTolerance: CGFloat { 8 / max(scale, 0.0001) }
+
+        func viewRect(forModelRect box: CGRect) -> CGRect {
+            CGRect(corner: modelToView(CGPoint(x: box.minX, y: box.minY)),
+                   modelToView(CGPoint(x: box.maxX, y: box.maxY)))
+        }
     }
 
-    private var displayRect: CGRect {
-        let s = canvasSize
-        let scale = displayScale
-        let w = s.width * scale, h = s.height * scale
-        return CGRect(x: (bounds.width - w) / 2, y: (bounds.height - h) / 2, width: w, height: h)
+    private var displayDocument: Document? {
+        guard var doc = controller?.document else { return nil }
+        doc.crop = nil
+        return doc
     }
 
-    private func modelToView(_ p: CGPoint) -> CGPoint {
-        let r = displayRect, scale = displayScale
-        return CGPoint(x: r.minX + p.x * scale,
-                       y: r.minY + (canvasSize.height - p.y) * scale)
+    private var displayInfo: DisplayInfo {
+        let canvas: CGRect
+        if let controller, let doc = displayDocument {
+            canvas = doc.outputRect(for: controller.exportBounds)
+        } else {
+            canvas = CGRect(origin: .zero, size: .zero)
+        }
+        guard canvas.width > 0, canvas.height > 0 else {
+            return DisplayInfo(canvas: canvas, scale: 1, rect: .zero)
+        }
+        let scale = min(bounds.width / canvas.width, bounds.height / canvas.height)
+        let w = canvas.width * scale, h = canvas.height * scale
+        let rect = CGRect(x: (bounds.width - w) / 2, y: (bounds.height - h) / 2, width: w, height: h)
+        return DisplayInfo(canvas: canvas, scale: scale, rect: rect)
     }
 
-    private func viewToModel(_ p: CGPoint) -> CGPoint {
-        let r = displayRect, scale = displayScale
-        guard scale > 0 else { return .zero }
-        return CGPoint(x: (p.x - r.minX) / scale,
-                       y: canvasSize.height - (p.y - r.minY) / scale)
-    }
+    private var displayScale: CGFloat { displayInfo.scale }
+    private var displayRect: CGRect { displayInfo.rect }
 
-    private var modelTolerance: CGFloat { 8 / max(displayScale, 0.0001) }
-
-    private func viewRect(forModelRect box: CGRect) -> CGRect {
-        CGRect(corner: modelToView(CGPoint(x: box.minX, y: box.minY)),
-               modelToView(CGPoint(x: box.maxX, y: box.maxY)))
-    }
+    private func modelToView(_ p: CGPoint) -> CGPoint { displayInfo.modelToView(p) }
+    private func viewToModel(_ p: CGPoint) -> CGPoint { displayInfo.viewToModel(p) }
+    private var modelTolerance: CGFloat { displayInfo.modelTolerance }
+    private func viewRect(forModelRect box: CGRect) -> CGRect { displayInfo.viewRect(forModelRect: box) }
 
     // MARK: Drawing
 
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext,
-              let controller, let doc = controller.document else { return }
-
-        // Display always shows the full canvas; a pending crop is shown as
-        // an overlay, not by shrinking the flattened image.
-        var displayDoc = doc
-        displayDoc.crop = nil
-        if flattened == nil || flattenedKey != displayDoc || flattenedBase !== controller.baseImage {
-            flattened = Renderer.flatten(displayDoc, baseImage: controller.baseImage, scale: 1)
+              let controller, let doc = controller.document,
+              let displayDoc = displayDocument else { return }
+        let exportBounds = controller.exportBounds
+        if flattened == nil || flattenedKey != displayDoc || flattenedBase !== controller.baseImage || flattenedBounds != exportBounds {
+            flattened = Renderer.flatten(displayDoc, baseImage: controller.baseImage, scale: 1,
+                                        bounds: exportBounds)
             flattenedKey = displayDoc
             flattenedBase = controller.baseImage
+            flattenedBounds = exportBounds
         }
+        let info = displayInfo
         if let img = flattened {
             ctx.interpolationQuality = .high
-            ctx.draw(img, in: displayRect)
+            ctx.draw(img, in: info.rect)
         }
 
         // Crop dimming + outline.
         if let crop = doc.crop {
-            drawCropOverlay(crop, in: ctx)
+            drawCropOverlay(crop, info: info, in: ctx)
         }
         updateAntsTimer(cropVisible: doc.crop != nil)
 
         // Selection handles.
         if let sel = controller.selection, let element = doc.elements.first(where: { $0.id == sel }) {
-            drawSelection(element, in: ctx)
+            drawSelection(element, info: info, in: ctx)
         }
     }
 
@@ -152,8 +192,8 @@ final class CanvasNSView: NSView {
         ctx.stroke(hr)
     }
 
-    private func drawSelection(_ element: Annotation, in ctx: CGContext) {
-        let viewBox = viewRect(forModelRect: element.boundingBox())
+    private func drawSelection(_ element: Annotation, info: DisplayInfo, in ctx: CGContext) {
+        let viewBox = info.viewRect(forModelRect: element.boundingBox())
         ctx.setStrokeColor(NSColor.controlAccentColor.withAlphaComponent(0.9).cgColor)
         ctx.setLineWidth(1)
         ctx.setLineDash(phase: 0, lengths: [4, 3])
@@ -161,20 +201,20 @@ final class CanvasNSView: NSView {
         ctx.setLineDash(phase: 0, lengths: [])
 
         for handle in element.handles() {
-            drawHandle(at: modelToView(handle.position),
+            drawHandle(at: info.modelToView(handle.position),
                        stroke: NSColor.controlAccentColor, lineWidth: 1.5, in: ctx)
         }
     }
 
-    private func drawCropOverlay(_ crop: CGRect, in ctx: CGContext) {
-        let viewCrop = viewRect(forModelRect: crop)
+    private func drawCropOverlay(_ crop: CGRect, info: DisplayInfo, in ctx: CGContext) {
+        let viewCrop = info.viewRect(forModelRect: crop)
         ctx.setFillColor(NSColor.black.withAlphaComponent(0.45).cgColor)
-        ctx.fill(displayRect)
+        ctx.fill(info.rect)
         ctx.clear(viewCrop)
         if let img = flattened {
             ctx.saveGState()
             ctx.clip(to: viewCrop)
-            ctx.draw(img, in: displayRect)
+            ctx.draw(img, in: info.rect)
             ctx.restoreGState()
         }
         // Marching ants (phase advanced by `antsTimer`).
@@ -221,13 +261,14 @@ final class CanvasNSView: NSView {
     override func mouseDown(with event: NSEvent) {
         commitTextEditing()
         guard let controller, controller.document != nil else { return }
+        let info = displayInfo
         let viewPoint = convert(event.locationInWindow, from: nil)
-        let p = viewToModel(viewPoint)
+        let p = info.viewToModel(viewPoint)
         controller.beginInteraction()
 
         // Double-click a text element (in any tool) to edit it.
         if event.clickCount == 2,
-           let id = controller.document?.hitTest(p, tolerance: modelTolerance),
+           let id = controller.document?.hitTest(p, tolerance: info.modelTolerance),
            case .text = controller.document?.elements.first(where: { $0.id == id }) {
             controller.selection = id
             drag = .none
@@ -237,11 +278,11 @@ final class CanvasNSView: NSView {
 
         switch controller.tool {
         case .select:
-            handlePointerMouseDown(at: p, creationTool: nil)
+            handlePointerMouseDown(at: p, creationTool: nil, info: info)
         case .crop:
-            handleCropMouseDown(at: p, viewPoint: viewPoint)
+            handleCropMouseDown(at: p, viewPoint: viewPoint, info: info)
         default:
-            handlePointerMouseDown(at: p, creationTool: controller.tool)
+            handlePointerMouseDown(at: p, creationTool: controller.tool, info: info)
         }
         refresh()
     }
@@ -250,10 +291,10 @@ final class CanvasNSView: NSView {
     /// current selection resizes; a body hit selects and moves. On empty space
     /// `select` clears the selection, while a creation tool creates a new element.
     /// The active tool is never changed.
-    private func handlePointerMouseDown(at p: CGPoint, creationTool: Tool?) {
+    private func handlePointerMouseDown(at p: CGPoint, creationTool: Tool?, info: DisplayInfo) {
         guard let controller, let doc = controller.document else { return }
         switch doc.resolvePointer(at: p, selection: controller.selection,
-                                  bodyTolerance: modelTolerance, handleTolerance: modelTolerance) {
+                                  bodyTolerance: info.modelTolerance, handleTolerance: info.modelTolerance) {
         case .handle(let id, let role):
             drag = .handle(id, role)
         case .body(let id):
@@ -271,11 +312,11 @@ final class CanvasNSView: NSView {
 
     /// Crop tool: grab a corner of an existing crop rect (drag resizes against
     /// the opposite corner), drag inside it to move it, or start a new rect.
-    private func handleCropMouseDown(at p: CGPoint, viewPoint: CGPoint) {
+    private func handleCropMouseDown(at p: CGPoint, viewPoint: CGPoint, info: DisplayInfo) {
         if let crop = controller?.document?.crop, crop.width > 0, crop.height > 0 {
             let handles = crop.cornerHandles()
             for handle in handles {
-                let v = modelToView(handle.position)
+                let v = info.modelToView(handle.position)
                 if hypot(v.x - viewPoint.x, v.y - viewPoint.y) <= 8,
                    let anchor = handles.first(where: { $0.role == handle.role.opposite }) {
                     drag = .cropping(anchor: anchor.position)
@@ -332,7 +373,8 @@ final class CanvasNSView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard let controller else { return }
-        let p = viewToModel(convert(event.locationInWindow, from: nil))
+        let info = displayInfo
+        let p = info.viewToModel(convert(event.locationInWindow, from: nil))
         switch drag {
         case .none:
             return
@@ -410,9 +452,10 @@ final class CanvasNSView: NSView {
               case .text(let text) = element else { return }
         commitTextEditing()
 
-        let tv = MinimalTextView(frame: viewRect(forModelRect: element.boundingBox()).insetBy(dx: -2, dy: -2))
+        let info = displayInfo
+        let tv = MinimalTextView(frame: info.viewRect(forModelRect: element.boundingBox()).insetBy(dx: -2, dy: -2))
         tv.string = text.string
-        tv.font = nsFont(for: text.font, scale: displayScale)
+        tv.font = nsFont(for: text.font, scale: info.scale)
         tv.textColor = nsColor(text.color)
         tv.backgroundColor = NSColor.white.withAlphaComponent(0.85)
         tv.isRichText = false
@@ -447,19 +490,6 @@ final class CanvasNSView: NSView {
         refresh()
     }
 
-    private func nsColor(_ c: RGBAColor) -> NSColor {
-        NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: c.a)
-    }
-
-    private func nsFont(for spec: FontSpec, scale: CGFloat) -> NSFont {
-        let size = spec.pointSize * scale
-        let base = NSFont(name: spec.family, size: size) ?? NSFont.systemFont(ofSize: size)
-        if spec.bold {
-            return NSFontManager.shared.convert(base, toHaveTrait: .boldFontMask)
-        }
-        return base
-    }
-
     // MARK: Drag & drop import
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { .copy }
@@ -486,4 +516,17 @@ extension CanvasNSView: NSTextViewDelegate {
     func textDidEndEditing(_ notification: Notification) {
         commitTextEditing()
     }
+}
+
+private func nsColor(_ c: RGBAColor) -> NSColor {
+    NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: c.a)
+}
+
+private func nsFont(for spec: FontSpec, scale: CGFloat) -> NSFont {
+    let size = spec.pointSize * scale
+    let base = NSFont(name: spec.family, size: size) ?? NSFont.systemFont(ofSize: size)
+    if spec.bold {
+        return NSFontManager.shared.convert(base, toHaveTrait: .boldFontMask)
+    }
+    return base
 }

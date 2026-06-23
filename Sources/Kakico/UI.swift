@@ -23,6 +23,14 @@ struct ContentView: View {
     var controller: CanvasController
 
     var body: some View {
+        // swiftlint:disable:next redundant_discardable_let
+        let _ = controller.exportBounds
+        // swiftlint:disable:next redundant_discardable_let
+        let _ = controller.document
+        // swiftlint:disable:next redundant_discardable_let
+        let _ = controller.selection
+        // swiftlint:disable:next redundant_discardable_let
+        let _ = controller.baseImage
         VStack(spacing: 0) {
             ToolbarBar(controller: controller)
             Divider()
@@ -74,8 +82,9 @@ struct ToolbarBar: View {
                         .frame(width: 22, height: 18)
                 }
                 .help(tool.label)
-                .buttonStyle(.bordered)
-                .tint(controller.tool == tool ? .accentColor : nil)
+                .keyboardShortcut(.none)
+                .buttonStyle(.accessoryBarAction)
+                .foregroundStyle(controller.tool == tool ? Color.accentColor : .secondary)
             }
 
             Divider().frame(height: 22)
