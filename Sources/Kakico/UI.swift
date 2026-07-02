@@ -62,6 +62,12 @@ struct ContentView: View {
                     .padding(.bottom, 20)
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            if let doc = controller.document {
+                ImageSizeBadge(document: doc, exportBounds: controller.exportBounds)
+                    .padding(16)
+            }
+        }
         .animation(.easeOut(duration: 0.12), value: controller.document?.crop != nil)
     }
 }
@@ -230,6 +236,30 @@ struct CropActionBar: View {
         }
         .miroFloatingPanel()
         .transition(.opacity)
+    }
+}
+
+/// Bottom-right badge showing the exported image size in pixels; during a
+/// pending crop it also shows the original size in parentheses.
+struct ImageSizeBadge: View {
+    var document: Document
+    var exportBounds: ExportBounds
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Text(label)
+            .font(.miroCaption)
+            .foregroundStyle(MiroTheme.textSecondary(scheme))
+            .miroFloatingPanel()
+    }
+
+    private var label: String {
+        let out = document.outputRect(for: exportBounds).integral
+        let size = "\(Int(out.width)) × \(Int(out.height))"
+        guard document.crop != nil else { return size }
+        let w = Int(document.canvasSize.width)
+        let h = Int(document.canvasSize.height)
+        return "\(size) (\(w) × \(h))"
     }
 }
 
