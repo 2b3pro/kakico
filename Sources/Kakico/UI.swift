@@ -21,6 +21,7 @@ func rgbaColor(from color: Color) -> RGBAColor {
 
 struct ContentView: View {
     var controller: CanvasController
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         // swiftlint:disable:next redundant_discardable_let
@@ -31,41 +32,81 @@ struct ContentView: View {
         let _ = controller.selection
         // swiftlint:disable:next redundant_discardable_let
         let _ = controller.baseImage
-        VStack(spacing: 0) {
-            ToolbarBar(controller: controller)
-            Divider()
+        ZStack {
+            MiroTheme.board(scheme)
+            MiroGrid(color: MiroTheme.grid(scheme))
             if controller.hasDocument {
                 CanvasView(controller: controller)
-                    .background(Color(nsColor: .underPageBackgroundColor))
+                    .padding(.leading, 76)
+                    .padding(.trailing, 24)
+                    .padding(.vertical, 24)
             } else {
                 EmptyState(controller: controller)
             }
         }
+        .overlay(alignment: .leading) {
+            if controller.hasDocument {
+                ToolPalette(controller: controller)
+                    .padding(.leading, 16)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if controller.hasDocument {
+                ActionBar(controller: controller)
+                    .padding(16)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if controller.document?.crop != nil {
+                CropActionBar(controller: controller)
+                    .padding(.bottom, 20)
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: controller.document?.crop != nil)
     }
 }
 
 struct EmptyState: View {
     var controller: CanvasController
+    @Environment(\.colorScheme) private var scheme
+
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "photo.on.rectangle.angled")
                 .font(.system(size: 56))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(MiroTheme.textSecondary(scheme))
             Text("Open or drop an image to start annotating")
-                .foregroundStyle(.secondary)
-            HStack {
-                Button("Open Image…") { ExportService.openPanel(controller) }
-                Button("Paste from Clipboard") { ExportService.confirmAndPasteImage(controller) }
+                .font(.miroBody)
+                .foregroundStyle(MiroTheme.textSecondary(scheme))
+            HStack(spacing: 12) {
+                MiroPrimaryButton(title: "Open Image…") { ExportService.openPanel(controller) }
+                MiroSecondaryButton(title: "Paste from Clipboard") { ExportService.confirmAndPasteImage(controller) }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-// MARK: - Toolbar
+// MARK: - Icon tiles
 
-struct ToolbarBar: View {
+/// Shared icon-in-tile label used by the palette and action-bar buttons; the
+/// content shape matches `MiroTileButtonStyle`'s 11pt hover/pressed fill.
+private func tileIcon(_ symbol: String, tint: Color,
+                      iconSize: CGFloat = 20, tile: CGFloat = 40) -> some View {
+    Image(systemName: symbol)
+        .font(.system(size: iconSize, weight: .medium))
+        .foregroundStyle(tint)
+        .frame(width: tile, height: tile)
+        .contentShape(.rect(cornerRadius: 11))
+}
+
+// MARK: - Floating tool palette
+
+struct ToolPalette: View {
     var controller: CanvasController
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var showsStrokeWidth = false
 
     private var colorBinding: Binding<Color> {
         Binding(get: { Color(controller.strokeColor) },
@@ -73,61 +114,122 @@ struct ToolbarBar: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        VStack(spacing: 4) {
             ForEach(Tool.allCases) { tool in
                 Button {
-                    controller.tool = tool
+                    if reduceMotion {
+                        controller.tool = tool
+                    } else {
+                        withAnimation(.easeOut(duration: 0.12)) { controller.tool = tool }
+                    }
                 } label: {
-                    Image(systemName: tool.symbol)
-                        .frame(width: 22, height: 18)
+                    tileIcon(tool.symbol,
+                             tint: controller.tool == tool ? Color.miroInk : MiroTheme.textSecondary(scheme))
+                        .background(
+                            RoundedRectangle(cornerRadius: 11)
+                                .fill(controller.tool == tool ? Color.miroYellow : .clear)
+                        )
                 }
+                .buttonStyle(.plain)
                 .help(tool.label)
                 .keyboardShortcut(.none)
-                .buttonStyle(.accessoryBarAction)
-                .foregroundStyle(controller.tool == tool ? Color.accentColor : .secondary)
             }
 
-            Divider().frame(height: 22)
+            Rectangle()
+                .fill(Color.miroDivider)
+                .frame(width: 28, height: 1)
+                .padding(.vertical, 4)
 
             ColorPicker("", selection: colorBinding, supportsOpacity: true)
                 .labelsHidden()
-                .frame(width: 44)
+                .frame(width: 40, height: 28)
+                .help("Stroke color")
 
-            HStack(spacing: 4) {
-                Image(systemName: "lineweight").foregroundStyle(.secondary)
-                Slider(value: Binding(get: { Double(controller.strokeWidth) },
-                                      set: { controller.strokeWidth = CGFloat($0) }),
-                       in: 1...40)
-                .frame(width: 90)
+            Button {
+                showsStrokeWidth.toggle()
+            } label: {
+                tileIcon("lineweight", tint: MiroTheme.textSecondary(scheme))
             }
-
-            Spacer()
-
-            if controller.document?.crop != nil {
-                Button("Apply Crop") { controller.applyCrop() }
-                    .help("Apply the crop (Return)")
-                Button("Cancel Crop") { controller.cancelCrop() }
-                    .help("Cancel the crop (Esc)")
+            .buttonStyle(MiroTileButtonStyle())
+            .help("Stroke width")
+            .popover(isPresented: $showsStrokeWidth, arrowEdge: .trailing) {
+                HStack(spacing: 8) {
+                    Image(systemName: "lineweight")
+                        .foregroundStyle(MiroTheme.textSecondary(scheme))
+                    Slider(value: Binding(get: { Double(controller.strokeWidth) },
+                                          set: { controller.strokeWidth = CGFloat($0) }),
+                           in: 1...40)
+                    .frame(width: 140)
+                    .tint(.miroBlue)
+                }
+                .padding(12)
             }
+        }
+        .miroFloatingPanel()
+    }
+}
 
+// MARK: - Floating action bar (share / copy / export)
+
+struct ActionBar: View {
+    var controller: CanvasController
+    @Environment(\.colorScheme) private var scheme
+    @State private var copied = false
+
+    var body: some View {
+        HStack(spacing: 4) {
             DragOutWell(controller: controller)
-                .frame(width: 30, height: 24)
+                .frame(width: 32, height: 32)
                 .help("Drag out to share as PNG")
 
-            Button { ExportService.copyToClipboard(controller) } label: {
-                Image(systemName: "doc.on.clipboard")
+            actionTile(copied ? "checkmark" : "doc.on.clipboard",
+                       help: "Copy image to clipboard",
+                       tint: copied ? .miroSuccess : nil) {
+                ExportService.copyToClipboard(controller)
+                copied = true
+                Task {
+                    try? await Task.sleep(for: .seconds(1))
+                    copied = false
+                }
             }
-            .help("Copy image to clipboard")
-            .disabled(!controller.hasDocument)
-
-            Button { ExportService.exportPanel(controller) } label: {
-                Image(systemName: "square.and.arrow.down")
+            actionTile("square.and.arrow.down", help: "Export image") {
+                ExportService.exportPanel(controller)
             }
-            .help("Export image")
-            .disabled(!controller.hasDocument)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .miroFloatingPanel()
+    }
+
+    private func actionTile(_ symbol: String, help: String, tint: Color? = nil,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            tileIcon(symbol, tint: tint ?? MiroTheme.textSecondary(scheme), iconSize: 16, tile: 36)
+        }
+        .buttonStyle(MiroTileButtonStyle())
+        .help(help)
+        .disabled(!controller.hasDocument)
+    }
+}
+
+// MARK: - Crop action bar
+
+struct CropActionBar: View {
+    var controller: CanvasController
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        HStack(spacing: 8) {
+            MiroPrimaryButton(title: "Apply Crop") { controller.applyCrop() }
+                .help("Apply the crop (Return)")
+            Button("Cancel") { controller.cancelCrop() }
+                .buttonStyle(.plain)
+                .font(.miroControl)
+                .foregroundStyle(MiroTheme.textSecondary(scheme))
+                .padding(.vertical, 10)
+                .padding(.horizontal, 12)
+                .help("Cancel the crop (Esc)")
+        }
+        .miroFloatingPanel()
+        .transition(.opacity)
     }
 }
 
