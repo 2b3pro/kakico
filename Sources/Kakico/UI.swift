@@ -106,6 +106,14 @@ private func tileIcon(_ symbol: String, tint: Color,
         .contentShape(.rect(cornerRadius: 11))
 }
 
+/// Horizontal hairline separating groups inside a floating panel.
+private func paletteDivider(width: CGFloat, verticalPadding: CGFloat) -> some View {
+    Rectangle()
+        .fill(Color.miroDivider)
+        .frame(width: width, height: 1)
+        .padding(.vertical, verticalPadding)
+}
+
 // MARK: - Floating tool palette
 
 struct ToolPalette: View {
@@ -113,13 +121,21 @@ struct ToolPalette: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsStrokeWidth = false
-
-    private var colorBinding: Binding<Color> {
-        Binding(get: { Color(controller.strokeColor) },
-                set: { controller.strokeColor = rgbaColor(from: $0) })
-    }
+    @State private var showsColorPresets = false
 
     var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            palette
+            if showsColorPresets {
+                ColorPresetPanel(controller: controller)
+                    .miroFloatingPanel()
+                    .transition(.scale(scale: 0.95, anchor: .leading).combined(with: .opacity))
+            }
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: showsColorPresets)
+    }
+
+    private var palette: some View {
         VStack(spacing: 4) {
             ForEach(Tool.allCases) { tool in
                 Button {
@@ -141,15 +157,20 @@ struct ToolPalette: View {
                 .keyboardShortcut(.none)
             }
 
-            Rectangle()
-                .fill(Color.miroDivider)
-                .frame(width: 28, height: 1)
-                .padding(.vertical, 4)
+            paletteDivider(width: 28, verticalPadding: 4)
 
-            ColorPicker("", selection: colorBinding, supportsOpacity: true)
-                .labelsHidden()
-                .frame(width: 40, height: 28)
-                .help("Stroke color")
+            Button {
+                showsColorPresets.toggle()
+            } label: {
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(Color(controller.strokeColor))
+                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.miroDivider, lineWidth: 1))
+                    .frame(width: 22, height: 22)
+                    .frame(width: 40, height: 40)
+                    .contentShape(.rect(cornerRadius: 11))
+            }
+            .buttonStyle(MiroTileButtonStyle())
+            .help("Stroke color")
 
             Button {
                 showsStrokeWidth.toggle()
@@ -175,6 +196,55 @@ struct ToolPalette: View {
             }
         }
         .miroFloatingPanel()
+    }
+}
+
+/// Vertical strip of preset swatches (Skitch-style) with the system color
+/// picker at the bottom as the fine-grained fallback. Stays open across
+/// selections and canvas work so colors can be switched while drawing;
+/// the palette swatch button toggles it closed.
+private struct ColorPresetPanel: View {
+    var controller: CanvasController
+
+    /// Skitch-style stroke color presets, top-to-bottom.
+    private static let presets: [(name: String, color: RGBAColor)] = [
+        ("Red", .red), ("Orange", .orange), ("Yellow", .yellow), ("Green", .green),
+        ("Blue", .blue), ("Pink", .pink), ("White", .white), ("Black", .black),
+    ]
+
+    private var colorBinding: Binding<Color> {
+        Binding(get: { Color(controller.strokeColor) },
+                set: { controller.strokeColor = rgbaColor(from: $0) })
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ForEach(Self.presets, id: \.name) { preset in
+                Button {
+                    controller.selectStrokeColor(preset.color)
+                } label: {
+                    Circle()
+                        .fill(Color(preset.color))
+                        .overlay(Circle().strokeBorder(Color.miroDivider, lineWidth: 1))
+                        .frame(width: 22, height: 22)
+                        .padding(3)
+                        .overlay {
+                            if controller.strokeColor == preset.color {
+                                Circle().strokeBorder(Color.miroBlue, lineWidth: 2)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .help(preset.name)
+            }
+
+            paletteDivider(width: 22, verticalPadding: 2)
+
+            ColorPicker("", selection: colorBinding, supportsOpacity: true)
+                .labelsHidden()
+                .help("Custom color…")
+        }
+        .padding(2)
     }
 }
 
