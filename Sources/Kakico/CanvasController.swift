@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 import AppKit
 import AnnotationModel
+import AnnotationRender
 
 /// Holds the document, the loaded base image, the current tool/selection, and
 /// a snapshot-based undo stack. The single source of truth for the UI.
@@ -15,10 +16,16 @@ final class CanvasController {
     /// conservative — equal-value writes also increment.
     @ObservationIgnored private(set) var documentVersion: Int = 0
     var baseImage: CGImage?
-    var selection: ElementID?
+    var selection: ElementID? {
+        didSet { syncToolStateFromSelection() }
+    }
     var tool: Tool = .arrow
-    var strokeColor: RGBAColor = .red
-    var strokeWidth: CGFloat = 6
+    var strokeColor: RGBAColor = .red {
+        didSet { applyColorToSelection() }
+    }
+    var strokeWidth: CGFloat = 6 {
+        didSet { applyStrokeWidthToSelection() }
+    }
     private static let exportBoundsKey = "exportBounds"
     var exportBounds: ExportBounds = {
         if let raw = UserDefaults.standard.string(forKey: CanvasController.exportBoundsKey),
@@ -40,9 +47,14 @@ final class CanvasController {
         var image: CGImage?
     }
 
+    /// True while `syncToolStateFromSelection()` writes the tool state, so the
+    /// setters' `didSet` apply hooks don't re-fire back into the document.
+    @ObservationIgnored private var isSyncing = false
+
     private var undoStack: [State] = []
     private var redoStack: [State] = []
     private var interactionSnapshot: State?
+    @ObservationIgnored private var pendingCommitTask: Task<Void, Never>?
 
     var hasDocument: Bool { document != nil }
     var canUndo: Bool { !undoStack.isEmpty }
@@ -72,6 +84,9 @@ final class CanvasController {
         selection = nil
         undoStack.removeAll()
         redoStack.removeAll()
+        pendingCommitTask?.cancel()
+        pendingCommitTask = nil
+        interactionSnapshot = nil
     }
 
     /// Loads an image from the general pasteboard, if present.
@@ -91,6 +106,7 @@ final class CanvasController {
 
     /// Capture state at the start of an interaction (e.g. mouseDown).
     func beginInteraction() {
+        flushPendingCommit()
         guard let document else { return }
         interactionSnapshot = State(document: document, image: baseImage)
     }
@@ -105,6 +121,7 @@ final class CanvasController {
 
     /// One-shot mutation with undo registration.
     func perform(_ change: (inout Document) -> Void) {
+        flushPendingCommit()
         guard var doc = document else { return }
         let pre = State(document: doc, image: baseImage)
         change(&doc)
@@ -115,6 +132,7 @@ final class CanvasController {
     }
 
     func undo() {
+        flushPendingCommit()
         guard let pre = undoStack.popLast(), let current = document else { return }
         redoStack.append(State(document: current, image: baseImage))
         document = pre.document
@@ -123,6 +141,7 @@ final class CanvasController {
     }
 
     func redo() {
+        flushPendingCommit()
         guard let next = redoStack.popLast(), let current = document else { return }
         undoStack.append(State(document: current, image: baseImage))
         document = next.document
@@ -132,6 +151,76 @@ final class CanvasController {
 
     private func clampSelection() {
         if let sel = selection, document?.index(of: sel) == nil { selection = nil }
+        syncToolStateFromSelection()
+    }
+
+    // MARK: - Tool state ↔ selection
+
+    /// Adopts the selected element's stroke width and color so the controls
+    /// start from the current values (and new elements inherit them).
+    private func syncToolStateFromSelection() {
+        guard let sel = selection, let doc = document, let i = doc.index(of: sel) else { return }
+        isSyncing = true
+        defer { isSyncing = false }
+        let element = doc.elements[i]
+        if case .text(let t) = element {
+            let width = FontSpec.strokeWidth(forPointSize: t.font.pointSize)
+            if width != strokeWidth { strokeWidth = width }
+        } else if let width = element.strokeWidth, width != strokeWidth {
+            strokeWidth = width
+        }
+        if let color = element.color, color != strokeColor { strokeColor = color }
+    }
+
+    /// Applies the global stroke width to the selected element; no-op when the
+    /// value is unchanged (breaks the sync → apply feedback loop) or the
+    /// element has no stroke width. For text the width maps to the font point
+    /// size (same mapping as creation) and the box height is re-measured so
+    /// wrapped text doesn't get clipped. Undo boundaries are the caller's job
+    /// (the slider wraps drags in begin/commitInteraction).
+    private func applyStrokeWidthToSelection() {
+        guard !isSyncing else { return }
+        guard let sel = selection, let doc = document, let i = doc.index(of: sel) else { return }
+        if case .text(var t) = doc.elements[i] {
+            let pointSize = FontSpec.suggestedPointSize(forStrokeWidth: strokeWidth)
+            guard t.font.pointSize != pointSize else { return }
+            t.font.pointSize = pointSize
+            t.size = Renderer.suggestedSize(for: t)
+            document?.elements[i] = .text(t)
+        } else if let current = doc.elements[i].strokeWidth, current != strokeWidth {
+            document?.elements[i].strokeWidth = strokeWidth
+        }
+    }
+
+    /// Applies the global stroke color to the selected element; no-op when the
+    /// value is unchanged (breaks the sync → apply feedback loop) or the
+    /// element has no color. The color picker has no drag begin/end events, so
+    /// the undo boundary is debounced: changes within 500ms coalesce into one
+    /// undo step.
+    private func applyColorToSelection() {
+        guard !isSyncing else { return }
+        guard let sel = selection,
+              let doc = document, let i = doc.index(of: sel),
+              let current = doc.elements[i].color,
+              current != strokeColor else { return }
+        if pendingCommitTask == nil { beginInteraction() }
+        document?.elements[i].color = strokeColor
+        pendingCommitTask?.cancel()
+        pendingCommitTask = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            pendingCommitTask = nil
+            commitInteraction()
+        }
+    }
+
+    /// Commits a debounce-pending change immediately so a following
+    /// interaction or undo/redo doesn't clobber its snapshot.
+    private func flushPendingCommit() {
+        guard pendingCommitTask != nil else { return }
+        pendingCommitTask?.cancel()
+        pendingCommitTask = nil
+        commitInteraction()
     }
 
     func deleteSelection() {
