@@ -60,6 +60,14 @@ final class CanvasNSView: NSView {
     /// resize). Frozen, the drag stays 1:1 with the cursor; the view re-fits
     /// on mouseUp.
     private var dragDisplayInfo: DisplayInfo?
+    /// Displacement of the image center from the viewport center, in view
+    /// points. Only meaningful when the zoomed image overflows the viewport;
+    /// re-clamped by `reconcileZoom()` whenever scale or bounds change.
+    private var panOffset: CGVector = .zero
+    /// Mapping computed by `reconcileZoom()` in `viewWillDraw()` and consumed
+    /// by `draw(_:)` so draw needn't evaluate `displayInfo` (a Document copy
+    /// plus an O(n) canvas-rect scan) a second time.
+    private var reconciledInfo: DisplayInfo?
     private var flattened: CGImage?
     // Cache key for `flattened`: re-render only when the content it shows
     // (document sans crop + base image) actually changes, not on every redraw.
@@ -114,6 +122,9 @@ final class CanvasNSView: NSView {
             _ = controller.baseImage
             _ = controller.selection
             _ = controller.exportBounds
+            // effectiveZoomScale is deliberately NOT tracked: this view writes
+            // it, so reading it here would loop redraws.
+            _ = controller.zoomMode
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.refresh()
@@ -164,9 +175,17 @@ final class CanvasNSView: NSView {
         guard canvas.width > 0, canvas.height > 0 else {
             return DisplayInfo(canvas: canvas, scale: 1, rect: .zero)
         }
-        let scale = min(bounds.width / canvas.width, bounds.height / canvas.height)
-        let w = canvas.width * scale, h = canvas.height * scale
-        let rect = CGRect(x: (bounds.width - w) / 2, y: (bounds.height - h) / 2, width: w, height: h)
+        let scale: CGFloat
+        switch controller?.zoomMode ?? .fit {
+        case .fit:
+            scale = ZoomMath.fittedScale(canvas: canvas.size, viewport: bounds.size)
+        case .percent(let percent):
+            scale = percent
+        }
+        // imageRect clamps the pan defensively; the stored panOffset itself is
+        // re-clamped in reconcileZoom() (a computed property must stay pure).
+        let rect = ZoomMath.imageRect(canvas: canvas.size, viewport: bounds.size,
+                                      scale: scale, pan: panOffset)
         return DisplayInfo(canvas: canvas, scale: scale, rect: rect)
     }
 
@@ -179,6 +198,47 @@ final class CanvasNSView: NSView {
     private func viewRect(forModelRect box: CGRect) -> CGRect { displayInfo.viewRect(forModelRect: box) }
 
     // MARK: Drawing
+
+    /// Brings the stored pan state in line with the current zoom mode and
+    /// bounds — the one funnel that sees both zoom changes (via observation-
+    /// triggered redraws) and window resizes. Runs from viewWillDraw, which
+    /// unlike draw may freely mutate view and controller state.
+    private func reconcileZoom() {
+        guard let controller else { reconciledInfo = nil; return }
+        // Mid-drag the mapping is frozen (draw uses dragDisplayInfo) and pan/
+        // zoom input is blocked, so there is nothing to reconcile.
+        guard dragDisplayInfo == nil else { return }
+        if case .fit = controller.zoomMode {
+            panOffset = .zero
+        }
+        var info = displayInfo
+        // effectiveZoomScale doubles as the last-applied scale: it is written
+        // exactly when the drawn scale changes (here and in magnify).
+        let old = controller.effectiveZoomScale
+        if old != info.scale {
+            if case .percent = controller.zoomMode {
+                panOffset = ZoomMath.panPreservingCenter(oldPan: panOffset,
+                                                         oldScale: old, newScale: info.scale)
+                // The rect above was built from the pre-adjustment pan; rebuild
+                // it (cheap arithmetic, the canvas rect is unchanged).
+                info = DisplayInfo(canvas: info.canvas, scale: info.scale,
+                                   rect: ZoomMath.imageRect(canvas: info.canvas.size,
+                                                            viewport: bounds.size,
+                                                            scale: info.scale, pan: panOffset))
+            }
+            // The inline editor's font has the old scale baked in; commit it,
+            // matching what a mouseDown does.
+            if textEditor != nil { commitTextEditing() }
+            controller.reportEffectiveZoomScale(info.scale)
+        }
+        panOffset = ZoomMath.clampedPan(panOffset, content: info.rect.size, viewport: bounds.size)
+        reconciledInfo = info
+    }
+
+    override func viewWillDraw() {
+        super.viewWillDraw()
+        reconcileZoom()
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext,
@@ -201,7 +261,7 @@ final class CanvasNSView: NSView {
             }
             flattenedVersion = version
         }
-        let info = dragDisplayInfo ?? displayInfo
+        let info = dragDisplayInfo ?? reconciledInfo ?? displayInfo
         // Model rect the cached image covers (`flattenedKey` is the document it
         // was rendered from), mapped through `info`: with a frozen transform,
         // grown content draws outside the fitted rect instead of being squeezed
@@ -475,6 +535,59 @@ final class CanvasNSView: NSView {
         refresh()
     }
 
+    // MARK: Pan
+
+    override func scrollWheel(with event: NSEvent) {
+        // Fit mode never overflows the viewport; bail before paying for
+        // displayInfo (a Document copy + O(n) scan) on every scroll tick.
+        guard let controller, controller.hasDocument,
+              case .percent = controller.zoomMode,
+              case .none = drag else {  // never pan mid-annotation-drag
+            super.scrollWheel(with: event)
+            return
+        }
+        let info = displayInfo
+        let content = info.rect.size
+        guard content.width > bounds.width || content.height > bounds.height else {
+            super.scrollWheel(with: event)  // fits entirely: stay centered
+            return
+        }
+        var pan = panOffset
+        pan.dx += event.scrollingDeltaX
+        pan.dy -= event.scrollingDeltaY  // non-flipped view
+        panOffset = ZoomMath.clampedPan(pan, content: content, viewport: bounds.size)
+        syncTextEditorFrame()
+        needsDisplay = true
+    }
+
+    /// Pinch zoom, anchored at the cursor. Continuous scale — the label shows
+    /// the live percentage and ⌘+/⌘- step to presets from wherever this lands.
+    override func magnify(with event: NSEvent) {
+        guard let controller, controller.hasDocument,
+              case .none = drag else {  // never zoom mid-annotation-drag
+            super.magnify(with: event)
+            return
+        }
+        let info = displayInfo
+        let oldScale = info.scale
+        let newScale = ZoomMath.clampedScale(oldScale * (1 + event.magnification),
+                                             canvas: info.canvas.size, viewport: bounds.size)
+        guard newScale != oldScale else { return }
+        if textEditor != nil { commitTextEditing() }  // editor font has the old scale baked in
+        let anchor = convert(event.locationInWindow, from: nil)
+        let pan = ZoomMath.panPreservingPoint(anchor, oldPan: panOffset,
+                                              oldScale: oldScale, newScale: newScale,
+                                              canvas: info.canvas.size, viewport: bounds.size)
+        let content = ZoomMath.contentSize(canvas: info.canvas.size, scale: newScale)
+        panOffset = ZoomMath.clampedPan(pan, content: content, viewport: bounds.size)
+        controller.setZoom(newScale)
+        // reconcileZoom() treats effectiveZoomScale as the last-applied scale;
+        // reporting now keeps it from re-anchoring the just-anchored pan at
+        // the view center.
+        controller.reportEffectiveZoomScale(newScale)
+        needsDisplay = true
+    }
+
     // MARK: Keyboard
 
     override func keyDown(with event: NSEvent) {
@@ -502,15 +615,38 @@ final class CanvasNSView: NSView {
         }
     }
 
-    // MARK: Inline text editing
+    // MARK: Drag & drop import
 
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { .copy }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let pb = sender.draggingPasteboard
+        if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingContentsConformToTypes: ["public.image"]]) as? [URL],
+           let url = urls.first {
+            controller?.loadImage(at: url)
+            refresh()
+            return true
+        }
+        if let objs = pb.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage],
+           let img = objs.first?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            controller?.loadImage(img)
+            refresh()
+            return true
+        }
+        return false
+    }
+}
+
+// MARK: - Inline text editing
+
+extension CanvasNSView: NSTextViewDelegate {
     /// Editor frame for a text element's model rect; the -2 inset leaves room
     /// for the editor chrome around the rendered text.
     private func textEditorFrame(forModelRect rect: CGRect) -> NSRect {
         displayInfo.viewRect(forModelRect: rect).insetBy(dx: -2, dy: -2)
     }
 
-    private func beginTextEditing(for id: ElementID) {
+    fileprivate func beginTextEditing(for id: ElementID) {
         guard let controller,
               let element = controller.document?.elements.first(where: { $0.id == id }),
               case .text(let text) = element else { return }
@@ -530,6 +666,19 @@ final class CanvasNSView: NSView {
         textEditor = tv
         editingTextID = id
         controller.isEditingText = true
+    }
+
+    /// Re-anchors the inline editor after the display mapping moved under it
+    /// (pan). Sizes from the live editor string, like textDidChange, so a
+    /// mid-typing pan doesn't snap the frame back to the committed text.
+    fileprivate func syncTextEditorFrame() {
+        guard let tv = textEditor, let id = editingTextID,
+              let element = controller?.document?.elements.first(where: { $0.id == id }),
+              case .text(var t) = element else { return }
+        t.string = tv.string
+        let size = Renderer.suggestedSize(for: t)
+        let newFrame = textEditorFrame(forModelRect: CGRect(origin: t.origin, size: size))
+        if tv.frame != newFrame { tv.frame = newFrame }
     }
 
     func commitTextEditing() {
@@ -557,29 +706,6 @@ final class CanvasNSView: NSView {
         refresh()
     }
 
-    // MARK: Drag & drop import
-
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { .copy }
-
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        let pb = sender.draggingPasteboard
-        if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingContentsConformToTypes: ["public.image"]]) as? [URL],
-           let url = urls.first {
-            controller?.loadImage(at: url)
-            refresh()
-            return true
-        }
-        if let objs = pb.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage],
-           let img = objs.first?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-            controller?.loadImage(img)
-            refresh()
-            return true
-        }
-        return false
-    }
-}
-
-extension CanvasNSView: NSTextViewDelegate {
     func textDidEndEditing(_ notification: Notification) {
         commitTextEditing()
     }
@@ -587,13 +713,7 @@ extension CanvasNSView: NSTextViewDelegate {
     // Resize the inline editor with its content; otherwise text past the fixed
     // frame is invisible while typing (the model rect is synced on commit).
     func textDidChange(_ notification: Notification) {
-        guard let tv = textEditor, let id = editingTextID,
-              let element = controller?.document?.elements.first(where: { $0.id == id }),
-              case .text(var t) = element else { return }
-        t.string = tv.string
-        let size = Renderer.suggestedSize(for: t)
-        let newFrame = textEditorFrame(forModelRect: CGRect(origin: t.origin, size: size))
-        if tv.frame != newFrame { tv.frame = newFrame }
+        syncTextEditorFrame()
     }
 }
 

@@ -22,6 +22,7 @@ func rgbaColor(from color: Color) -> RGBAColor {
 struct ContentView: View {
     var controller: CanvasController
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         // swiftlint:disable:next redundant_discardable_let
@@ -64,11 +65,42 @@ struct ContentView: View {
         }
         .overlay(alignment: .bottomTrailing) {
             if let doc = controller.document {
-                ImageSizeBadge(document: doc, exportBounds: controller.exportBounds)
-                    .padding(16)
+                HStack(spacing: 8) {
+                    ZoomMenuButton(controller: controller)
+                    ImageSizeBadge(document: doc, exportBounds: controller.exportBounds)
+                }
+                .padding(16)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let message = controller.toastMessage {
+                ToastView(message: message)
+                    .padding(.bottom, 24)
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: 8)))
             }
         }
         .animation(.easeOut(duration: 0.12), value: controller.document?.crop != nil)
+        .animation(.easeOut(duration: 0.18), value: controller.toastMessage)
+    }
+}
+
+/// Bottom-center confirmation toast; purely informational, so it never
+/// intercepts clicks meant for the canvas below.
+struct ToastView: View {
+    let message: String
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(Color.miroSuccess)
+            Text(message)
+                .font(.miroControl)
+                .foregroundStyle(MiroTheme.textPrimary(scheme))
+        }
+        .padding(.vertical, 10).padding(.horizontal, 16)
+        .miroFloatingPanel(shape: Capsule())
+        .allowsHitTesting(false)
     }
 }
 
@@ -117,7 +149,7 @@ private func paletteDivider(width: CGFloat, verticalPadding: CGFloat) -> some Vi
 // MARK: - Floating tool palette
 
 struct ToolPalette: View {
-    var controller: CanvasController
+    @Bindable var controller: CanvasController
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsStrokeWidth = false
@@ -183,19 +215,66 @@ struct ToolPalette: View {
                 HStack(spacing: 8) {
                     Image(systemName: "lineweight")
                         .foregroundStyle(MiroTheme.textSecondary(scheme))
-                    Slider(value: Binding(get: { Double(controller.strokeWidth) },
-                                          set: { controller.strokeWidth = CGFloat($0) }),
-                           in: 1...40,
-                           onEditingChanged: { editing in
-                               if editing { controller.beginInteraction() } else { controller.commitInteraction() }
-                           })
-                    .frame(width: 140)
-                    .tint(.miroBlue)
+                    MiroSlider(
+                        value: $controller.strokeWidth,
+                        range: 1...40,
+                        onEditingChanged: { editing in
+                            if editing { controller.beginInteraction() } else { controller.commitInteraction() }
+                        },
+                        width: 140
+                    )
                 }
                 .padding(12)
             }
         }
         .miroFloatingPanel()
+    }
+}
+
+/// Pure-SwiftUI slider. The native `Slider` wraps an NSSlider whose knob
+/// renders in the inactive (dark) style inside a non-key popover window until
+/// clicked; drawing our own knob keeps it white regardless of window key state.
+private struct MiroSlider: View {
+    @Binding var value: CGFloat
+    let range: ClosedRange<CGFloat>
+    let onEditingChanged: (Bool) -> Void
+    let width: CGFloat
+    private let knob: CGFloat = 16
+    private let track: CGFloat = 4
+
+    @State private var editing = false
+
+    var body: some View {
+        let span = range.upperBound - range.lowerBound
+        let clamped = min(max(value, range.lowerBound), range.upperBound)
+        let fraction = span > 0 ? (clamped - range.lowerBound) / span : 0
+        let usable = width - knob
+
+        ZStack(alignment: .leading) {
+            Capsule().fill(Color.miroDivider).frame(height: track)
+            Capsule().fill(Color.miroBlue)
+                .frame(width: knob / 2 + fraction * usable, height: track)
+            Circle().fill(.white)
+                .overlay(Circle().strokeBorder(Color.black.opacity(0.12), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.25), radius: 1, y: 0.5)
+                .frame(width: knob, height: knob)
+                .offset(x: fraction * usable)
+        }
+        .frame(width: width, height: knob)
+        .contentShape(.rect)
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { g in
+                    if !editing { editing = true; onEditingChanged(true) }
+                    let x = min(max(0, g.location.x - knob / 2), usable)
+                    let f = usable > 0 ? x / usable : 0
+                    value = range.lowerBound + f * span
+                }
+                .onEnded { _ in
+                    editing = false
+                    onEditingChanged(false)
+                }
+        )
     }
 }
 
@@ -253,7 +332,6 @@ private struct ColorPresetPanel: View {
 struct ActionBar: View {
     var controller: CanvasController
     @Environment(\.colorScheme) private var scheme
-    @State private var copied = false
 
     var body: some View {
         HStack(spacing: 4) {
@@ -261,15 +339,10 @@ struct ActionBar: View {
                 .frame(width: 32, height: 32)
                 .help("Drag out to share as PNG")
 
-            actionTile(copied ? "checkmark" : "doc.on.clipboard",
-                       help: "Copy image to clipboard",
-                       tint: copied ? .miroSuccess : nil) {
+            // Copy confirmation comes from the shared toast that
+            // copyToClipboard flashes (it also covers ⌘C, which has no button).
+            actionTile("doc.on.clipboard", help: "Copy image to clipboard") {
                 ExportService.copyToClipboard(controller)
-                copied = true
-                Task {
-                    try? await Task.sleep(for: .seconds(1))
-                    copied = false
-                }
             }
             actionTile("square.and.arrow.down", help: "Export image") {
                 ExportService.exportPanel(controller)
@@ -278,10 +351,10 @@ struct ActionBar: View {
         .miroFloatingPanel()
     }
 
-    private func actionTile(_ symbol: String, help: String, tint: Color? = nil,
+    private func actionTile(_ symbol: String, help: String,
                             action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            tileIcon(symbol, tint: tint ?? MiroTheme.textSecondary(scheme), iconSize: 16, tile: 36)
+            tileIcon(symbol, tint: MiroTheme.textSecondary(scheme), iconSize: 16, tile: 36)
         }
         .buttonStyle(MiroTileButtonStyle())
         .help(help)
@@ -309,6 +382,36 @@ struct CropActionBar: View {
         }
         .miroFloatingPanel()
         .transition(.opacity)
+    }
+}
+
+/// Preview-style zoom control next to the size badge: shows the live effective
+/// percentage (fit mode included) and pulls down the preset levels.
+struct ZoomMenuButton: View {
+    var controller: CanvasController
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Menu {
+            ForEach(ZoomMath.presets, id: \.self) { preset in
+                Button(ZoomMath.percentLabel(for: preset)) { controller.setZoom(preset) }
+            }
+            Divider()
+            Button("Fit to Window") { controller.zoomToFit() }
+        } label: {
+            HStack(spacing: 3) {
+                Text(controller.zoomPercentText)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+            }
+            .font(.miroCaption)
+            .foregroundStyle(MiroTheme.textSecondary(scheme))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .fixedSize()
+        .miroFloatingPanel()
+        .help("Zoom")
     }
 }
 

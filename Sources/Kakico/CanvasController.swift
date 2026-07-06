@@ -43,6 +43,28 @@ final class CanvasController {
     }
     private(set) var sourceURL: URL?
 
+    /// Transient view state — deliberately outside the undo stack.
+    var zoomMode: ZoomMode = .fit
+    /// Scale the canvas actually drew with last (fit mode included); written
+    /// back by CanvasNSView so the zoom button can show a live percentage.
+    private(set) var effectiveZoomScale: CGFloat = 1
+
+    /// Transient toast text shown by ContentView; auto-cleared by flashToast.
+    private(set) var toastMessage: String?
+    @ObservationIgnored private var toastTask: Task<Void, Never>?
+
+    /// Shows `message` in the bottom-center toast, restarting the dismiss
+    /// timer if a toast is already visible.
+    func flashToast(_ message: String) {
+        toastTask?.cancel()
+        toastMessage = message
+        toastTask = Task {
+            try? await Task.sleep(for: .seconds(1.8))
+            guard !Task.isCancelled else { return }
+            toastMessage = nil
+        }
+    }
+
     /// Undo unit: the document plus the base image (destructive crop swaps the
     /// image, so document snapshots alone can't restore it).
     private struct State {
@@ -90,6 +112,21 @@ final class CanvasController {
         pendingCommitTask?.cancel()
         pendingCommitTask = nil
         interactionSnapshot = nil
+        zoomMode = .fit
+    }
+
+    // MARK: - Zoom
+
+    var zoomPercentText: String { ZoomMath.percentLabel(for: effectiveZoomScale) }
+
+    func setZoom(_ scale: CGFloat) { zoomMode = .percent(scale) }
+    func zoomToFit() { zoomMode = .fit }
+    func zoomIn() { zoomMode = .percent(ZoomMath.zoomInScale(from: effectiveZoomScale)) }
+    func zoomOut() { zoomMode = .percent(ZoomMath.zoomOutScale(from: effectiveZoomScale)) }
+
+    func reportEffectiveZoomScale(_ scale: CGFloat) {
+        guard scale != effectiveZoomScale else { return }
+        effectiveZoomScale = scale
     }
 
     /// Loads an image from the general pasteboard, if present.
