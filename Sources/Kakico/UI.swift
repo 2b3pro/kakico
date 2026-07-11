@@ -270,7 +270,9 @@ struct ToolPalette: View {
     }
 
     private var palette: some View {
-        VStack(spacing: 4) {
+        let editsPixelate = controller.sliderEditsPixelateAmount
+        let sliderSymbol = editsPixelate ? Tool.pixelate.symbol : "lineweight"
+        return VStack(spacing: 4) {
             ForEach(Tool.allCases) { tool in
                 Button {
                     if reduceMotion {
@@ -309,17 +311,17 @@ struct ToolPalette: View {
             Button {
                 showsStrokeWidth.toggle()
             } label: {
-                tileIcon("lineweight", tint: MiroTheme.textSecondary(scheme))
+                tileIcon(sliderSymbol, tint: MiroTheme.textSecondary(scheme))
             }
             .buttonStyle(MiroTileButtonStyle())
-            .help("Stroke width")
+            .help(editsPixelate ? "Pixel size" : "Stroke width")
             .popover(isPresented: $showsStrokeWidth, arrowEdge: .trailing) {
                 HStack(spacing: 8) {
-                    Image(systemName: "lineweight")
+                    Image(systemName: sliderSymbol)
                         .foregroundStyle(MiroTheme.textSecondary(scheme))
                     MiroSlider(
-                        value: $controller.strokeWidth,
-                        range: DefaultStrokeWidth.range,
+                        value: editsPixelate ? $controller.pixelateAmount : $controller.strokeWidth,
+                        range: editsPixelate ? RedactionElement.amountRange : DefaultStrokeWidth.range,
                         onEditingChanged: { editing in
                             if editing { controller.beginInteraction() } else { controller.commitInteraction() }
                         },
