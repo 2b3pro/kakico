@@ -45,7 +45,7 @@ final class CanvasNSView: NSView {
         }
     }
 
-    private enum Drag {
+    enum Drag {
         case none
         case moving(ElementID, last: CGPoint)
         case handle(ElementID, HandleRole)
@@ -54,12 +54,21 @@ final class CanvasNSView: NSView {
         case movingCrop(last: CGPoint)
         /// Pen straight line: the end point follows the pointer until mouse-up.
         case lining(ElementID, anchor: CGPoint)
+        /// Spacebar hand tool: drags the zoomed image; `last` is in view points.
+        case panning(last: CGPoint)
     }
-    private var drag: Drag = .none
+    var drag: Drag = .none
+    /// True while the spacebar is held: the next mouse-down pans instead of
+    /// annotating (Photoshop's hand tool). Releasing space mid-drag keeps the
+    /// pan going until mouse-up.
+    private var isSpaceHeld = false
+    /// Hand cursors pushed for the space gesture, so they can be popped in
+    /// exact balance even if focus is lost mid-gesture.
+    private var pushedHandCursors = 0
     /// First point of a pending pen straight line (model space), set by a
     /// Shift-click with the pen tool and consumed by the next Shift-click.
     /// Any other click abandons it.
-    private var penLineAnchor: CGPoint?
+    var penLineAnchor: CGPoint?
     /// Display mapping frozen for the duration of a drag. With expandToFit,
     /// dragging past the image edge grows the canvas, which would shift the
     /// mouse mapping mid-drag and feed the growth back on itself (runaway
@@ -111,6 +120,27 @@ final class CanvasNSView: NSView {
     @objc private func appDidResignActive() {
         antsTimer?.invalidate()
         antsTimer = nil
+        endSpaceGesture()
+    }
+
+    override func resignFirstResponder() -> Bool {
+        endSpaceGesture()
+        return super.resignFirstResponder()
+    }
+
+    private func pushHandCursor(_ cursor: NSCursor) {
+        cursor.push()
+        pushedHandCursors += 1
+    }
+
+    /// Drops the space flag and any hand cursors; a pan in progress finishes
+    /// on its own mouse-up.
+    private func endSpaceGesture() {
+        isSpaceHeld = false
+        while pushedHandCursors > 0 {
+            NSCursor.pop()
+            pushedHandCursors -= 1
+        }
     }
 
     @objc private func appDidBecomeActive() {
@@ -141,7 +171,7 @@ final class CanvasNSView: NSView {
 
     // MARK: Coordinate mapping
 
-    private struct DisplayInfo {
+    struct DisplayInfo {
         let canvas: CGRect
         let scale: CGFloat
         let rect: CGRect
@@ -392,6 +422,12 @@ final class CanvasNSView: NSView {
         guard let controller, controller.document != nil else { return }
         let info = displayInfo
         let viewPoint = convert(event.locationInWindow, from: nil)
+        if isSpaceHeld {
+            commitTextEditing()
+            drag = .panning(last: viewPoint)
+            pushHandCursor(.closedHand)
+            return
+        }
         let p = info.viewToModel(viewPoint)
         controller.beginInteraction()
 
@@ -476,6 +512,10 @@ final class CanvasNSView: NSView {
                 line.points = [anchor, p]
                 $0 = .pen(line)
             }
+        case .panning(let last):
+            let v = convert(event.locationInWindow, from: nil)
+            pan(by: CGVector(dx: v.x - last.x, dy: v.y - last.y))
+            drag = .panning(last: v)
         }
         refresh()
     }
@@ -498,6 +538,10 @@ final class CanvasNSView: NSView {
         default:
             break
         }
+        if case .panning = drag, pushedHandCursors > 0 {
+            NSCursor.pop()
+            pushedHandCursors -= 1
+        }
         drag = .none
         controller.commitInteraction()
         refresh()
@@ -514,18 +558,28 @@ final class CanvasNSView: NSView {
             super.scrollWheel(with: event)
             return
         }
+        // Non-flipped view: scrolling "down" moves the content up.
+        if !pan(by: CGVector(dx: event.scrollingDeltaX, dy: -event.scrollingDeltaY)) {
+            super.scrollWheel(with: event)  // fits entirely: stay centered
+        }
+    }
+
+    /// Moves the zoomed image by `delta` view points, clamped so it never
+    /// leaves the viewport. Returns false when the image fits entirely (or
+    /// zoom is fit mode), in which case nothing moves.
+    @discardableResult
+    private func pan(by delta: CGVector) -> Bool {
+        guard let controller, case .percent = controller.zoomMode else { return false }
         let info = displayInfo
         let content = info.rect.size
-        guard content.width > bounds.width || content.height > bounds.height else {
-            super.scrollWheel(with: event)  // fits entirely: stay centered
-            return
-        }
+        guard content.width > bounds.width || content.height > bounds.height else { return false }
         var pan = panOffset
-        pan.dx += event.scrollingDeltaX
-        pan.dy -= event.scrollingDeltaY  // non-flipped view
+        pan.dx += delta.dx
+        pan.dy += delta.dy
         panOffset = ZoomMath.clampedPan(pan, content: content, viewport: bounds.size)
         syncTextEditorFrame()
         needsDisplay = true
+        return true
     }
 
     /// Pinch zoom, anchored at the cursor. Continuous scale — the label shows
@@ -561,6 +615,10 @@ final class CanvasNSView: NSView {
     override func keyDown(with event: NSEvent) {
         guard let controller else { return super.keyDown(with: event) }
         switch event.keyCode {
+        case 49: // space — hold for the hand tool
+            guard !event.isARepeat, !isSpaceHeld else { return }
+            isSpaceHeld = true
+            pushHandCursor(.openHand)
         case 51, 117: // delete / forward-delete
             controller.deleteSelection()
             refresh()
@@ -582,6 +640,18 @@ final class CanvasNSView: NSView {
             refresh()
         default:
             super.keyDown(with: event)
+        }
+    }
+
+    override func keyUp(with event: NSEvent) {
+        guard event.keyCode == 49, isSpaceHeld else { return super.keyUp(with: event) }
+        // Keep the closed hand for a pan still in progress; drop the rest.
+        isSpaceHeld = false
+        let keep: Int
+        if case .panning = drag { keep = 1 } else { keep = 0 }
+        while pushedHandCursors > keep {
+            NSCursor.pop()
+            pushedHandCursors -= 1
         }
     }
 
@@ -607,105 +677,6 @@ final class CanvasNSView: NSView {
     }
 }
 
-// MARK: - Mouse-down helpers (element creation, crop grab, pen straight line)
-
-extension CanvasNSView {
-    /// Pen tool with Shift held: the first click sets an anchor, the second
-    /// creates a straight two-point stroke from the anchor to the click and
-    /// lets the end follow the pointer until mouse-up.
-    private func handlePenLineClick(at p: CGPoint) {
-        guard let controller else { return }
-        guard let anchor = penLineAnchor else {
-            penLineAnchor = p
-            controller.selection = nil
-            drag = .none
-            return
-        }
-        let line = PenElement(points: [anchor, p], color: controller.strokeColor,
-                              width: controller.strokeWidth, opacity: controller.penOpacity)
-        controller.document?.add(.pen(line))
-        controller.selection = line.id
-        penLineAnchor = nil
-        drag = .lining(line.id, anchor: anchor)
-    }
-
-    /// Crop tool: grab a corner of an existing crop rect (drag resizes against
-    /// the opposite corner), drag inside it to move it, or start a new rect.
-    private func handleCropMouseDown(at p: CGPoint, viewPoint: CGPoint, info: DisplayInfo) {
-        if let crop = controller?.document?.crop, crop.width > 0, crop.height > 0 {
-            let handles = crop.cornerHandles()
-            for handle in handles {
-                let v = info.modelToView(handle.position)
-                if hypot(v.x - viewPoint.x, v.y - viewPoint.y) <= 8,
-                   let anchor = handles.first(where: { $0.role == handle.role.opposite }) {
-                    drag = .cropping(anchor: anchor.position)
-                    return
-                }
-            }
-            if crop.contains(p) {
-                drag = .movingCrop(last: p)
-                return
-            }
-        }
-        controller?.document?.crop = CGRect(corner: p, p)
-        drag = .cropping(anchor: p)
-    }
-
-    private func createElement(tool: Tool, at p: CGPoint) {
-        guard let controller else { return }
-        let color = controller.strokeColor
-        let width = controller.strokeWidth
-        let zeroRect = CGRect(corner: p, p)
-        let new: Annotation
-        var role: HandleRole = .bottomRight
-        switch tool {
-        case .arrow:
-            new = .arrow(SegmentElement(start: p, end: p, color: color, width: width)); role = .end
-        case .line:
-            new = .line(SegmentElement(start: p, end: p, color: color, width: width)); role = .end
-        case .rectangle:
-            new = .rectangle(ShapeElement(rect: zeroRect, color: color, width: width))
-        case .ellipse:
-            new = .ellipse(ShapeElement(rect: zeroRect, color: color, width: width))
-        case .pen:
-            // The drag appends points through moveHandle(.end).
-            new = .pen(PenElement(points: [p], color: color, width: width, opacity: controller.penOpacity)); role = .end
-        case .pixelate:
-            new = .pixelate(RedactionElement(rect: zeroRect, amount: controller.pixelateAmount))
-        case .stamp:
-            // Stamps are placed at a default size at the click point; the
-            // click-drag swings the tail so it points the way you drag. A
-            // plain click keeps the default (down) direction.
-            let canvasSize = controller.document?.canvasSize ?? DefaultSizeScale.referenceCanvasSize
-            let stamp = StampElement(center: p, radius: StampElement.defaultRadius(forCanvasSize: canvasSize),
-                                     kind: controller.stampKind, color: color)
-            controller.document?.add(.stamp(stamp))
-            controller.selection = stamp.id
-            drag = .creating(stamp.id, .end)
-            return
-        default:
-            return
-        }
-        controller.document?.add(new)
-        controller.selection = new.id
-        drag = .creating(new.id, role)
-    }
-
-    private func createText(at p: CGPoint) {
-        guard let controller else { return }
-        let element = TextElement(origin: p, size: CGSize(width: 220, height: 44),
-                                  string: "",
-                                  font: FontSpec(pointSize: FontSpec.suggestedPointSize(forStrokeWidth: controller.strokeWidth)),
-                                  color: controller.strokeColor,
-                                  style: controller.textStyle)
-        controller.document?.add(.text(element))
-        controller.selection = element.id
-        drag = .none
-        refresh()
-        beginTextEditing(for: element.id)
-    }
-}
-
 // MARK: - Inline text editing
 
 extension CanvasNSView: NSTextViewDelegate {
@@ -715,7 +686,7 @@ extension CanvasNSView: NSTextViewDelegate {
         displayInfo.viewRect(forModelRect: rect).insetBy(dx: -2, dy: -2)
     }
 
-    fileprivate func beginTextEditing(for id: ElementID) {
+    func beginTextEditing(for id: ElementID) {
         guard let controller,
               let element = controller.document?.elements.first(where: { $0.id == id }),
               case .text(let text) = element else { return }
