@@ -299,6 +299,60 @@ final class CanvasControllerTests: XCTestCase {
         XCTAssertEqual(controller.strokeWidth, before, "stamp tool keeps the slider value; it has no width group")
     }
 
+    // MARK: - Pen opacity
+
+    private func addPen(_ controller: CanvasController, opacity: CGFloat) -> ElementID {
+        let pen = PenElement(points: [CGPoint(x: 10, y: 10), CGPoint(x: 40, y: 40)], opacity: opacity)
+        controller.document?.add(.pen(pen))
+        return pen.id
+    }
+
+    func testPenOpacityDefaultsToOpaque() {
+        XCTAssertEqual(CanvasController().penOpacity, 1)
+    }
+
+    func testSelectingPenAdoptsItsOpacityWithoutUndo() {
+        let controller = makeLoadedController()
+        controller.selection = addPen(controller, opacity: 0.4)
+        XCTAssertEqual(controller.penOpacity, 0.4)
+        XCTAssertFalse(controller.canUndo)
+    }
+
+    func testChangingOpacityEditsSelectedPen() {
+        let controller = makeLoadedController()
+        controller.selection = addPen(controller, opacity: 1)
+        controller.penOpacity = 0.3
+        XCTAssertEqual(controller.document?.elements.first?.opacity, 0.3)
+    }
+
+    func testChangingOpacityLeavesNonPenSelectionUntouched() {
+        let controller = makeLoadedController()
+        controller.selection = addText(controller, style: .plain)
+        controller.penOpacity = 0.3
+        XCTAssertNil(controller.document?.elements.first?.opacity)
+    }
+
+    func testOpacityControlShowsForPenToolOrPenSelection() {
+        let controller = makeLoadedController()
+        XCTAssertFalse(controller.editsPenOpacity)
+        controller.tool = .pen
+        XCTAssertTrue(controller.editsPenOpacity)
+        controller.tool = .select
+        controller.selection = addPen(controller, opacity: 1)
+        XCTAssertTrue(controller.editsPenOpacity)
+    }
+
+    func testPenHasItsOwnRememberedWidth() {
+        let controller = makeLoadedController()   // 2x reference canvas
+        controller.tool = .pen
+        XCTAssertEqual(controller.strokeWidth, DefaultStrokeWidth.penReferenceWidth * 2)
+        controller.strokeWidth = 5
+        controller.tool = .arrow
+        XCTAssertEqual(controller.strokeWidth, 32)
+        controller.tool = .pen
+        XCTAssertEqual(controller.strokeWidth, 5)
+    }
+
     func testToolSwitchClearsSelection() {
         let controller = makeLoadedController()
         let seg = SegmentElement(start: .zero, end: CGPoint(x: 100, y: 100))
