@@ -106,6 +106,30 @@ final class AnnotationModelTests: XCTestCase {
         XCTAssertEqual(decoded.textStyle, .outline)
     }
 
+    func testTextOutlineColorDefaultsToWhiteAndRoundTrips() throws {
+        XCTAssertEqual(TextElement(origin: .zero).outlineColor, .white)
+        let text = TextElement(origin: .zero, string: "x", outlineColor: .black)
+        let data = try JSONEncoder().encode(Annotation.text(text))
+        XCTAssertEqual(try JSONDecoder().decode(Annotation.self, from: data).textOutlineColor, .black)
+    }
+
+    func testTextOutlineColorAccessorIsNilForNonText() {
+        var arrow = Annotation.arrow(SegmentElement(start: .zero, end: CGPoint(x: 1, y: 1)))
+        XCTAssertNil(arrow.textOutlineColor)
+        arrow.textOutlineColor = .black
+        XCTAssertNil(arrow.textOutlineColor)
+        var text = Annotation.text(TextElement(origin: .zero))
+        text.textOutlineColor = .black
+        XCTAssertEqual(text.textOutlineColor, .black)
+    }
+
+    func testInitialTextWidthScalesWithAFloor() {
+        XCTAssertEqual(DefaultInitialSize.textWidth(forCanvasSize: DefaultSizeScale.referenceCanvasSize), 260)
+        XCTAssertEqual(DefaultInitialSize.textWidth(forCanvasSize: CGSize(width: 2400, height: 2000)), 520)
+        XCTAssertEqual(DefaultInitialSize.textWidth(forCanvasSize: CGSize(width: 300, height: 200)), 200,
+                       "small images still get a 200px box")
+    }
+
     func testTextStyleAccessorIsNilForNonText() {
         var arrow = Annotation.arrow(SegmentElement(start: .zero, end: CGPoint(x: 1, y: 1)))
         XCTAssertNil(arrow.textStyle)

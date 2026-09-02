@@ -101,6 +101,15 @@ public enum DefaultInitialSize {
     public static let segment = CGVector(dx: 100, dy: 70)
     /// Default box for a freshly placed rectangle/ellipse/pixelate.
     public static let size = CGSize(width: 120, height: 90)
+    /// Text box width at the reference canvas size, and the floor it never
+    /// drops below on small images. The user resizes from there.
+    public static let textWidth: CGFloat = 260
+    public static let minimumTextWidth: CGFloat = 200
+
+    /// Initial text box width, scaled to the canvas but at least `minimumTextWidth`.
+    public static func textWidth(forCanvasSize canvasSize: CGSize) -> CGFloat {
+        max(minimumTextWidth, (textWidth * DefaultSizeScale.factor(forCanvasSize: canvasSize)).rounded())
+    }
 
     /// Tail→head vector for a freshly placed arrow/line, scaled to the canvas.
     public static func segment(forCanvasSize canvasSize: CGSize) -> CGVector {

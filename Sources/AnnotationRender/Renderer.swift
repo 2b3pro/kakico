@@ -263,11 +263,11 @@ public enum Renderer {
             case .plain:
                 drawPass(fill)
             case .outline:
-                drawPass(attributedString(for: e, stroke: (.black, outlineStrokePercent)))
+                drawPass(attributedString(for: e, stroke: (e.outlineColor, outlineStrokePercent)))
                 drawPass(fill)
             case .shadow:
                 withShadow(forStrokeWidth: FontSpec.strokeWidth(forPointSize: e.font.pointSize), in: ctx) {
-                    drawPass(attributedString(for: e, stroke: (.white, haloStrokePercent)))
+                    drawPass(attributedString(for: e, stroke: (e.outlineColor, haloStrokePercent)))
                     drawPass(fill)
                 }
             }
