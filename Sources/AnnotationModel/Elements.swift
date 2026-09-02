@@ -113,6 +113,13 @@ public enum TextStyle: String, Codable, Equatable, Sendable, CaseIterable {
     case outline
     /// Fill only.
     case plain
+
+    /// The style after this one in the toggle cycle (shadow → outline → plain → shadow).
+    public var next: TextStyle {
+        let all = Self.allCases
+        let i = all.firstIndex(of: self) ?? 0
+        return all[(i + 1) % all.count]
+    }
 }
 
 public struct TextElement: Codable, Equatable, Sendable, RectGeometry {
@@ -132,6 +139,39 @@ public struct TextElement: Codable, Equatable, Sendable, RectGeometry {
     public var rect: CGRect {
         get { CGRect(origin: origin, size: size) }
         set { origin = newValue.origin; size = newValue.size }
+    }
+
+    /// Narrowest a text box can be dragged.
+    public static let minimumWidth: CGFloat = 40
+    public static let pointSizeRange: ClosedRange<Double> = 8...400
+
+    /// Skitch text handles: left and right edges set the width (the box
+    /// wraps at its width and re-measures its height), and the bottom-right
+    /// corner scales the font. There are no height handles.
+    public func handles() -> [Handle] {
+        [Handle(role: .left, position: CGPoint(x: rect.minX, y: rect.midY)),
+         Handle(role: .right, position: CGPoint(x: rect.maxX, y: rect.midY)),
+         Handle(role: .bottomRight, position: CGPoint(x: rect.maxX, y: rect.maxY))]
+    }
+
+    public mutating func moveHandle(_ role: HandleRole, to point: CGPoint) {
+        switch role {
+        case .right:
+            size.width = max(Self.minimumWidth, point.x - origin.x)
+        case .left:
+            let maxX = rect.maxX
+            let newMinX = min(point.x, maxX - Self.minimumWidth)
+            origin.x = newMinX
+            size.width = maxX - newMinX
+        case .bottomRight:
+            // Keep the bottom edge under the pointer for the current
+            // height-to-size ratio; the caller re-measures the height.
+            guard size.height > 0 else { return }
+            let scaled = Double((point.y - origin.y) / size.height) * font.pointSize
+            font.pointSize = min(Self.pointSizeRange.upperBound, max(Self.pointSizeRange.lowerBound, scaled))
+        default:
+            break
+        }
     }
 
     public init(id: ElementID = UUID(), origin: CGPoint, size: CGSize = CGSize(width: 160, height: 40),

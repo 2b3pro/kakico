@@ -332,27 +332,6 @@ final class CanvasNSView: NSView {
         }
     }
 
-    private func drawHandle(at center: CGPoint, stroke: NSColor, lineWidth: CGFloat, in ctx: CGContext) {
-        let hr = CGRect(x: center.x - 4.5, y: center.y - 4.5, width: 9, height: 9)
-        ctx.setFillColor(NSColor.white.cgColor)
-        ctx.fillEllipse(in: hr)
-        ctx.setStrokeColor(stroke.cgColor)
-        ctx.setLineWidth(lineWidth)
-        ctx.strokeEllipse(in: hr)
-    }
-
-    private func drawSelection(_ element: Annotation, info: DisplayInfo, in ctx: CGContext) {
-        let viewBox = info.viewRect(forModelRect: element.boundingBox())
-        ctx.setStrokeColor(NSColor.miroBlue.cgColor)
-        ctx.setLineWidth(2)
-        ctx.stroke(viewBox.insetBy(dx: -2, dy: -2))
-
-        for handle in element.handles() {
-            drawHandle(at: info.modelToView(handle.position),
-                       stroke: NSColor.miroBlue, lineWidth: 1.5, in: ctx)
-        }
-    }
-
     private func drawCropOverlay(_ crop: CGRect, info: DisplayInfo, imageRect: CGRect, in ctx: CGContext) {
         let viewCrop = info.viewRect(forModelRect: crop)
         ctx.setFillColor(NSColor.black.withAlphaComponent(0.45).cgColor)
@@ -425,6 +404,18 @@ final class CanvasNSView: NSView {
             commitTextEditing()
             drag = .panning(last: viewPoint)
             pushHandCursor(.closedHand)
+            return
+        }
+        // Style button above a selected text box: cycle its style. Handled
+        // before beginInteraction so the controller's own undo step is the
+        // only one recorded.
+        if let sel = controller.selection,
+           let element = controller.document?.elements.first(where: { $0.id == sel }),
+           let center = textStyleButtonCenter(for: element, info: info),
+           hypot(viewPoint.x - center.x, viewPoint.y - center.y) <= Self.textStyleButtonRadius {
+            controller.textStyle = controller.textStyle.next
+            drag = .none
+            refresh()
             return
         }
         let p = info.viewToModel(viewPoint)

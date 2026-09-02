@@ -4,7 +4,7 @@ import AnnotationModel
 import AnnotationRender
 @testable import Kakico
 
-/// Dragging a text box's corner narrower must grow its height so wrapped
+/// Dragging a text box's right edge narrower must grow its height so wrapped
 /// lines are not clipped. 200×200 image in a 200×200 window-less view at
 /// 1:1, so view y = 200 − model y.
 @MainActor
@@ -33,8 +33,8 @@ final class TextResizeGestureTests: XCTestCase {
 
         let view = CanvasNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         view.controller = controller
-        // Grab the bottom-right corner (model 190, 10+h) and drag it to x = 80.
-        let corner = CGPoint(x: 190, y: 200 - (10 + oneLineHeight))
+        // Grab the right-edge handle (model 190, 10 + h/2) and drag it to x = 80.
+        let corner = CGPoint(x: 190, y: 200 - (10 + oneLineHeight / 2))
         view.mouseDown(with: mouse(.leftMouseDown, at: corner))
         view.mouseDragged(with: mouse(.leftMouseDragged, at: CGPoint(x: 80, y: corner.y)))
         view.mouseUp(with: mouse(.leftMouseUp, at: CGPoint(x: 80, y: corner.y)))
