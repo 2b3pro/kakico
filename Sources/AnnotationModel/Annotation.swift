@@ -8,6 +8,7 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
     case line(SegmentElement)
     case rectangle(ShapeElement)
     case ellipse(ShapeElement)
+    case pen(PenElement)
     case text(TextElement)
     case stamp(StampElement)
     case pixelate(RedactionElement)
@@ -21,6 +22,7 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
         case .line(let e): return e
         case .rectangle(let e): return e
         case .ellipse(let e): return e
+        case .pen(let e): return e
         case .text(let e): return e
         case .stamp(let e): return e
         case .pixelate(let e): return e
@@ -38,6 +40,7 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
             switch self {
             case .arrow(let e), .line(let e): return e.width
             case .rectangle(let e), .ellipse(let e): return e.width
+            case .pen(let e): return e.width
             case .text, .stamp, .pixelate: return nil
             }
         }
@@ -48,8 +51,23 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
             case .line(var e): e.width = width; self = .line(e)
             case .rectangle(var e): e.width = width; self = .rectangle(e)
             case .ellipse(var e): e.width = width; self = .ellipse(e)
+            case .pen(var e): e.width = width; self = .pen(e)
             case .text, .stamp, .pixelate: break
             }
+        }
+    }
+
+    /// Opacity of a pen stroke; nil for other kinds. Setting is a no-op for
+    /// those kinds and for nil.
+    public var opacity: CGFloat? {
+        get {
+            guard case .pen(let e) = self else { return nil }
+            return e.opacity
+        }
+        set {
+            guard case .pen(var e) = self, let opacity = newValue else { return }
+            e.opacity = opacity
+            self = .pen(e)
         }
     }
 
@@ -116,6 +134,7 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
             switch self {
             case .arrow(let e), .line(let e): return e.color
             case .rectangle(let e), .ellipse(let e): return e.color
+            case .pen(let e): return e.color
             case .text(let e): return e.color
             case .stamp(let e): return e.color
             case .pixelate: return nil
@@ -128,6 +147,7 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
             case .line(var e): e.color = color; self = .line(e)
             case .rectangle(var e): e.color = color; self = .rectangle(e)
             case .ellipse(var e): e.color = color; self = .ellipse(e)
+            case .pen(var e): e.color = color; self = .pen(e)
             case .text(var e): e.color = color; self = .text(e)
             case .stamp(var e): e.color = color; self = .stamp(e)
             case .pixelate: break
@@ -147,6 +167,7 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
         case .ellipse(let e):   return .ellipse(Self.defaultSized(e, canvasSize: canvasSize))
         case .pixelate(let e):  return .pixelate(Self.defaultSized(e, canvasSize: canvasSize))
         case .text, .stamp:     return self   // already placed at a default size
+        case .pen:              return self   // a plain click is a dot
         }
     }
 
@@ -183,6 +204,7 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
         case .line(var e): var g: AnnotationGeometry = e; body(&g); e = g as! SegmentElement; self = .line(e)
         case .rectangle(var e): var g: AnnotationGeometry = e; body(&g); e = g as! ShapeElement; self = .rectangle(e)
         case .ellipse(var e): var g: AnnotationGeometry = e; body(&g); e = g as! ShapeElement; self = .ellipse(e)
+        case .pen(var e): var g: AnnotationGeometry = e; body(&g); e = g as! PenElement; self = .pen(e)
         case .text(var e): var g: AnnotationGeometry = e; body(&g); e = g as! TextElement; self = .text(e)
         case .stamp(var e): var g: AnnotationGeometry = e; body(&g); e = g as! StampElement; self = .stamp(e)
         case .pixelate(var e): var g: AnnotationGeometry = e; body(&g); e = g as! RedactionElement; self = .pixelate(e)

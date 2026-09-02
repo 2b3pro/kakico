@@ -86,6 +86,8 @@ public enum DefaultStrokeWidth {
     /// Rectangle/ellipse outline width at the reference canvas size — an
     /// outline of the segment width reads far heavier, so shapes get half.
     public static let shapeReferenceWidth: CGFloat = 8
+    /// Pen stroke width at the reference canvas size.
+    public static let penReferenceWidth: CGFloat = 10
 
     public static func width(reference: CGFloat, forCanvasSize size: CGSize) -> CGFloat {
         DefaultSizeScale.scaledDefault(reference: reference, clampedTo: range, forCanvasSize: size)
