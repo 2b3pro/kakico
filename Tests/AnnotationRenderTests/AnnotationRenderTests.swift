@@ -160,10 +160,11 @@ final class AnnotationRenderTests: XCTestCase {
 
     // MARK: - Text styles
 
-    private func textDoc(style: TextStyle, color: RGBAColor) -> Document {
+    private func textDoc(style: TextStyle, color: RGBAColor, outline: RGBAColor = .white) -> Document {
         var doc = Document(baseImage: .pngData(Data()), canvasSize: CGSize(width: 200, height: 80))
         doc.add(.text(TextElement(origin: CGPoint(x: 10, y: 10), size: CGSize(width: 180, height: 60),
-                                  string: "Hello", font: FontSpec(pointSize: 36), color: color, style: style)))
+                                  string: "Hello", font: FontSpec(pointSize: 36), color: color, style: style,
+                                  outlineColor: outline)))
         return doc
     }
 
@@ -175,10 +176,22 @@ final class AnnotationRenderTests: XCTestCase {
     func testOutlineStyleAddsBlackOutline() {
         let base = solidImage(CGSize(width: 200, height: 80), color: (1, 1, 1))
         let isBlack: ((r: Int, g: Int, b: Int)) -> Bool = { $0.r < 60 && $0.g < 60 && $0.b < 60 }
-        let outlined = Renderer.flatten(textDoc(style: .outline, color: .yellow), baseImage: base, scale: 1)!
+        let outlined = Renderer.flatten(textDoc(style: .outline, color: .yellow, outline: .black), baseImage: base, scale: 1)!
         XCTAssertTrue(pixels(outlined).contains(where: isBlack), "outline style should produce black pixels")
+        let whiteOutlined = Renderer.flatten(textDoc(style: .outline, color: .yellow, outline: .white), baseImage: base, scale: 1)!
+        XCTAssertFalse(pixels(whiteOutlined).contains(where: isBlack), "a white outline draws no black")
         let plain = Renderer.flatten(textDoc(style: .plain, color: .yellow), baseImage: base, scale: 1)!
         XCTAssertFalse(pixels(plain).contains(where: isBlack), "plain style should not produce black pixels")
+    }
+
+    /// The halo takes the outline color too: black halo on white shows black.
+    func testShadowStyleHaloUsesOutlineColor() {
+        let white = solidImage(CGSize(width: 200, height: 80), color: (1, 1, 1))
+        let isBlack: ((r: Int, g: Int, b: Int)) -> Bool = { $0.r < 60 && $0.g < 60 && $0.b < 60 }
+        let blackHalo = Renderer.flatten(textDoc(style: .shadow, color: .yellow, outline: .black), baseImage: white, scale: 1)!
+        XCTAssertTrue(pixels(blackHalo).contains(where: isBlack))
+        let whiteHalo = Renderer.flatten(textDoc(style: .shadow, color: .yellow, outline: .white), baseImage: white, scale: 1)!
+        XCTAssertFalse(pixels(whiteHalo).contains(where: isBlack))
     }
 
     /// Shadow style draws a white halo around the glyphs (visible on black)

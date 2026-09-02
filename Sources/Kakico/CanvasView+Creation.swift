@@ -89,11 +89,14 @@ extension CanvasNSView {
 
     func createText(at p: CGPoint) {
         guard let controller else { return }
-        let element = TextElement(origin: p, size: CGSize(width: 220, height: 44),
+        let canvasSize = controller.document?.canvasSize ?? DefaultSizeScale.referenceCanvasSize
+        let element = TextElement(origin: p,
+                                  size: CGSize(width: DefaultInitialSize.textWidth(forCanvasSize: canvasSize), height: 44),
                                   string: "",
                                   font: FontSpec(pointSize: FontSpec.suggestedPointSize(forStrokeWidth: controller.strokeWidth)),
                                   color: controller.strokeColor,
-                                  style: controller.textStyle)
+                                  style: controller.textStyle,
+                                  outlineColor: controller.textOutlineColor)
         controller.document?.add(.text(element))
         controller.selection = element.id
         drag = .none
