@@ -66,7 +66,7 @@ final class WorkspaceControllerTests: XCTestCase {
 
     func testActivateForeignControllerIsNoOp() {
         let ws = Harness().workspace
-        ws.activate(CanvasController())
+        ws.activate(CanvasController(preferencesStore: InMemoryToolPreferencesStore()))
         XCTAssertTrue(ws.active === ws.tabs[0])
     }
 

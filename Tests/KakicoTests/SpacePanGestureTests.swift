@@ -14,7 +14,7 @@ final class SpacePanGestureTests: XCTestCase {
         let ctx = CGContext(data: nil, width: 200, height: 200, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpaceCreateDeviceRGB(),
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        let controller = CanvasController()
+        let controller = CanvasController(preferencesStore: InMemoryToolPreferencesStore())
         controller.loadImage(ctx.makeImage()!)
         controller.zoomMode = zoom
         controller.tool = .pen

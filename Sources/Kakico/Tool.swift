@@ -1,7 +1,7 @@
 import Foundation
 import AnnotationModel
 
-enum Tool: String, CaseIterable, Identifiable {
+enum Tool: String, CaseIterable, Identifiable, Codable {
     case select
     case arrow
     case line
@@ -79,7 +79,7 @@ enum Tool: String, CaseIterable, Identifiable {
 /// share one width, shape outlines another, text its own. The kind→group
 /// taxonomy is defined here, in `Tool.strokeWidthGroup` and
 /// `Annotation.strokeWidthGroup` below — keep the two switches in step.
-enum StrokeWidthGroup {
+enum StrokeWidthGroup: String, Codable {
     case segment
     case shape
     case pen
