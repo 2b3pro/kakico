@@ -52,8 +52,14 @@ final class CanvasNSView: NSView {
         case creating(ElementID, HandleRole)
         case cropping(anchor: CGPoint)
         case movingCrop(last: CGPoint)
+        /// Pen straight line: the end point follows the pointer until mouse-up.
+        case lining(ElementID, anchor: CGPoint)
     }
     private var drag: Drag = .none
+    /// First point of a pending pen straight line (model space), set by a
+    /// Shift-click with the pen tool and consumed by the next Shift-click.
+    /// Any other click abandons it.
+    private var penLineAnchor: CGPoint?
     /// Display mapping frozen for the duration of a drag. With expandToFit,
     /// dragging past the image edge grows the canvas, which would shift the
     /// mouse mapping mid-drag and feed the growth back on itself (runaway
@@ -283,6 +289,18 @@ final class CanvasNSView: NSView {
         if let sel = controller.selection, let element = doc.elements.first(where: { $0.id == sel }) {
             drawSelection(element, info: info, in: ctx)
         }
+
+        // Pending pen straight-line anchor: a dot in the stroke's own look.
+        if controller.tool == .pen, let anchor = penLineAnchor {
+            let center = info.modelToView(anchor)
+            let d = max(4, controller.strokeWidth * info.scale)
+            let dot = CGRect(x: center.x - d / 2, y: center.y - d / 2, width: d, height: d)
+            ctx.setFillColor(nsColor(controller.strokeColor).withAlphaComponent(controller.penOpacity).cgColor)
+            ctx.fillEllipse(in: dot)
+            ctx.setStrokeColor(NSColor.miroBlue.cgColor)
+            ctx.setLineWidth(1)
+            ctx.strokeEllipse(in: dot.insetBy(dx: -2, dy: -2))
+        }
     }
 
     private func drawHandle(at center: CGPoint, stroke: NSColor, lineWidth: CGFloat, in ctx: CGContext) {
@@ -387,13 +405,18 @@ final class CanvasNSView: NSView {
             return
         }
 
-        switch controller.tool {
-        case .select:
-            handlePointerMouseDown(at: p, creationTool: nil, info: info)
-        case .crop:
-            handleCropMouseDown(at: p, viewPoint: viewPoint, info: info)
-        default:
-            handlePointerMouseDown(at: p, creationTool: controller.tool, info: info)
+        if controller.tool == .pen, event.modifierFlags.contains(.shift) {
+            handlePenLineClick(at: p)
+        } else {
+            penLineAnchor = nil
+            switch controller.tool {
+            case .select:
+                handlePointerMouseDown(at: p, creationTool: nil, info: info)
+            case .crop:
+                handleCropMouseDown(at: p, viewPoint: viewPoint, info: info)
+            default:
+                handlePointerMouseDown(at: p, creationTool: controller.tool, info: info)
+            }
         }
         // Only actual drags freeze the mapping; click paths (text creation,
         // double-click edit) must keep using the live one.
@@ -427,82 +450,6 @@ final class CanvasNSView: NSView {
         }
     }
 
-    /// Crop tool: grab a corner of an existing crop rect (drag resizes against
-    /// the opposite corner), drag inside it to move it, or start a new rect.
-    private func handleCropMouseDown(at p: CGPoint, viewPoint: CGPoint, info: DisplayInfo) {
-        if let crop = controller?.document?.crop, crop.width > 0, crop.height > 0 {
-            let handles = crop.cornerHandles()
-            for handle in handles {
-                let v = info.modelToView(handle.position)
-                if hypot(v.x - viewPoint.x, v.y - viewPoint.y) <= 8,
-                   let anchor = handles.first(where: { $0.role == handle.role.opposite }) {
-                    drag = .cropping(anchor: anchor.position)
-                    return
-                }
-            }
-            if crop.contains(p) {
-                drag = .movingCrop(last: p)
-                return
-            }
-        }
-        controller?.document?.crop = CGRect(corner: p, p)
-        drag = .cropping(anchor: p)
-    }
-
-    private func createElement(tool: Tool, at p: CGPoint) {
-        guard let controller else { return }
-        let color = controller.strokeColor
-        let width = controller.strokeWidth
-        let zeroRect = CGRect(corner: p, p)
-        let new: Annotation
-        var role: HandleRole = .bottomRight
-        switch tool {
-        case .arrow:
-            new = .arrow(SegmentElement(start: p, end: p, color: color, width: width)); role = .end
-        case .line:
-            new = .line(SegmentElement(start: p, end: p, color: color, width: width)); role = .end
-        case .rectangle:
-            new = .rectangle(ShapeElement(rect: zeroRect, color: color, width: width))
-        case .ellipse:
-            new = .ellipse(ShapeElement(rect: zeroRect, color: color, width: width))
-        case .pen:
-            // The drag appends points through moveHandle(.end).
-            new = .pen(PenElement(points: [p], color: color, width: width, opacity: controller.penOpacity)); role = .end
-        case .pixelate:
-            new = .pixelate(RedactionElement(rect: zeroRect, amount: controller.pixelateAmount))
-        case .stamp:
-            // Stamps are placed at a default size at the click point; the
-            // click-drag swings the tail so it points the way you drag. A
-            // plain click keeps the default (down) direction.
-            let canvasSize = controller.document?.canvasSize ?? DefaultSizeScale.referenceCanvasSize
-            let stamp = StampElement(center: p, radius: StampElement.defaultRadius(forCanvasSize: canvasSize),
-                                     kind: controller.stampKind, color: color)
-            controller.document?.add(.stamp(stamp))
-            controller.selection = stamp.id
-            drag = .creating(stamp.id, .end)
-            return
-        default:
-            return
-        }
-        controller.document?.add(new)
-        controller.selection = new.id
-        drag = .creating(new.id, role)
-    }
-
-    private func createText(at p: CGPoint) {
-        guard let controller else { return }
-        let element = TextElement(origin: p, size: CGSize(width: 220, height: 44),
-                                  string: "",
-                                  font: FontSpec(pointSize: FontSpec.suggestedPointSize(forStrokeWidth: controller.strokeWidth)),
-                                  color: controller.strokeColor,
-                                  style: controller.textStyle)
-        controller.document?.add(.text(element))
-        controller.selection = element.id
-        drag = .none
-        refresh()
-        beginTextEditing(for: element.id)
-    }
-
     override func mouseDragged(with event: NSEvent) {
         guard let controller else { return }
         let info = dragDisplayInfo ?? displayInfo
@@ -523,6 +470,12 @@ final class CanvasNSView: NSView {
                 controller.document?.crop = crop.offsetBy(dx: p.x - last.x, dy: p.y - last.y)
             }
             drag = .movingCrop(last: p)
+        case .lining(let id, let anchor):
+            controller.document?.mutate(id) {
+                guard case .pen(var line) = $0 else { return }
+                line.points = [anchor, p]
+                $0 = .pen(line)
+            }
         }
         refresh()
     }
@@ -618,9 +571,11 @@ final class CanvasNSView: NSView {
             } else {
                 super.keyDown(with: event)
             }
-        case 53: // escape — cancel pending crop, else clear selection
+        case 53: // escape — cancel pending crop or line anchor, else clear selection
             if controller.document?.crop != nil {
                 controller.cancelCrop()
+            } else if penLineAnchor != nil {
+                penLineAnchor = nil
             } else {
                 controller.selection = nil
             }
@@ -649,6 +604,105 @@ final class CanvasNSView: NSView {
             return true
         }
         return false
+    }
+}
+
+// MARK: - Mouse-down helpers (element creation, crop grab, pen straight line)
+
+extension CanvasNSView {
+    /// Pen tool with Shift held: the first click sets an anchor, the second
+    /// creates a straight two-point stroke from the anchor to the click and
+    /// lets the end follow the pointer until mouse-up.
+    private func handlePenLineClick(at p: CGPoint) {
+        guard let controller else { return }
+        guard let anchor = penLineAnchor else {
+            penLineAnchor = p
+            controller.selection = nil
+            drag = .none
+            return
+        }
+        let line = PenElement(points: [anchor, p], color: controller.strokeColor,
+                              width: controller.strokeWidth, opacity: controller.penOpacity)
+        controller.document?.add(.pen(line))
+        controller.selection = line.id
+        penLineAnchor = nil
+        drag = .lining(line.id, anchor: anchor)
+    }
+
+    /// Crop tool: grab a corner of an existing crop rect (drag resizes against
+    /// the opposite corner), drag inside it to move it, or start a new rect.
+    private func handleCropMouseDown(at p: CGPoint, viewPoint: CGPoint, info: DisplayInfo) {
+        if let crop = controller?.document?.crop, crop.width > 0, crop.height > 0 {
+            let handles = crop.cornerHandles()
+            for handle in handles {
+                let v = info.modelToView(handle.position)
+                if hypot(v.x - viewPoint.x, v.y - viewPoint.y) <= 8,
+                   let anchor = handles.first(where: { $0.role == handle.role.opposite }) {
+                    drag = .cropping(anchor: anchor.position)
+                    return
+                }
+            }
+            if crop.contains(p) {
+                drag = .movingCrop(last: p)
+                return
+            }
+        }
+        controller?.document?.crop = CGRect(corner: p, p)
+        drag = .cropping(anchor: p)
+    }
+
+    private func createElement(tool: Tool, at p: CGPoint) {
+        guard let controller else { return }
+        let color = controller.strokeColor
+        let width = controller.strokeWidth
+        let zeroRect = CGRect(corner: p, p)
+        let new: Annotation
+        var role: HandleRole = .bottomRight
+        switch tool {
+        case .arrow:
+            new = .arrow(SegmentElement(start: p, end: p, color: color, width: width)); role = .end
+        case .line:
+            new = .line(SegmentElement(start: p, end: p, color: color, width: width)); role = .end
+        case .rectangle:
+            new = .rectangle(ShapeElement(rect: zeroRect, color: color, width: width))
+        case .ellipse:
+            new = .ellipse(ShapeElement(rect: zeroRect, color: color, width: width))
+        case .pen:
+            // The drag appends points through moveHandle(.end).
+            new = .pen(PenElement(points: [p], color: color, width: width, opacity: controller.penOpacity)); role = .end
+        case .pixelate:
+            new = .pixelate(RedactionElement(rect: zeroRect, amount: controller.pixelateAmount))
+        case .stamp:
+            // Stamps are placed at a default size at the click point; the
+            // click-drag swings the tail so it points the way you drag. A
+            // plain click keeps the default (down) direction.
+            let canvasSize = controller.document?.canvasSize ?? DefaultSizeScale.referenceCanvasSize
+            let stamp = StampElement(center: p, radius: StampElement.defaultRadius(forCanvasSize: canvasSize),
+                                     kind: controller.stampKind, color: color)
+            controller.document?.add(.stamp(stamp))
+            controller.selection = stamp.id
+            drag = .creating(stamp.id, .end)
+            return
+        default:
+            return
+        }
+        controller.document?.add(new)
+        controller.selection = new.id
+        drag = .creating(new.id, role)
+    }
+
+    private func createText(at p: CGPoint) {
+        guard let controller else { return }
+        let element = TextElement(origin: p, size: CGSize(width: 220, height: 44),
+                                  string: "",
+                                  font: FontSpec(pointSize: FontSpec.suggestedPointSize(forStrokeWidth: controller.strokeWidth)),
+                                  color: controller.strokeColor,
+                                  style: controller.textStyle)
+        controller.document?.add(.text(element))
+        controller.selection = element.id
+        drag = .none
+        refresh()
+        beginTextEditing(for: element.id)
     }
 }
 
