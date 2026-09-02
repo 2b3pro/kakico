@@ -40,6 +40,12 @@ final class CanvasController {
     var stampKind: StampKind = .check {
         didSet { applyStampKindToSelection() }
     }
+
+    /// Halo/outline color for new text (white or black); edits the selected
+    /// text element when one is selected.
+    var textOutlineColor: RGBAColor = .white {
+        didSet { applyTextOutlineColorToSelection() }
+    }
     var strokeWidth: CGFloat = DefaultStrokeWidth.segmentReferenceWidth {
         didSet {
             rememberStrokeWidth()
@@ -305,6 +311,7 @@ final class CanvasController {
         if let amount = element.pixelateAmount, amount != pixelateAmount { pixelateAmount = amount }
         if let style = element.textStyle, style != textStyle { textStyle = style }
         if let kind = element.stampKind, kind != stampKind { stampKind = kind }
+        if let outline = element.textOutlineColor, outline != textOutlineColor { textOutlineColor = outline }
     }
 
     /// Shared `didSet` hook for the tool-state properties (stroke width /
@@ -363,6 +370,16 @@ final class CanvasController {
               let current = doc.elements[i].stampKind, current != stampKind else { return }
         let kind = stampKind
         perform { $0.elements[i].stampKind = kind }
+    }
+
+    /// Applies the global text outline color to the selected text element as
+    /// one undo step.
+    private func applyTextOutlineColorToSelection() {
+        guard !isSyncing else { return }
+        guard let sel = selection, let doc = document, let i = doc.index(of: sel),
+              let current = doc.elements[i].textOutlineColor, current != textOutlineColor else { return }
+        let color = textOutlineColor
+        perform { $0.elements[i].textOutlineColor = color }
     }
 
     /// Applies the global pixelate amount to the selected element. Undo

@@ -123,6 +123,9 @@ public struct TextElement: Codable, Equatable, Sendable, RectGeometry {
     public var font: FontSpec
     public var color: RGBAColor
     public var style: TextStyle
+    /// Color of the halo (shadow style) or outline (outline style); white
+    /// or black in the UI, ignored by the plain style.
+    public var outlineColor: RGBAColor
 
     /// Rect-backed view over the stored origin/size (which stay the encoded
     /// representation).
@@ -133,10 +136,10 @@ public struct TextElement: Codable, Equatable, Sendable, RectGeometry {
 
     public init(id: ElementID = UUID(), origin: CGPoint, size: CGSize = CGSize(width: 160, height: 40),
                 string: String = "", font: FontSpec = FontSpec(), color: RGBAColor = .red,
-                style: TextStyle = .shadow) {
+                style: TextStyle = .shadow, outlineColor: RGBAColor = .white) {
         self.id = id; self.origin = origin; self.size = size
         self.string = string; self.font = font; self.color = color
-        self.style = style
+        self.style = style; self.outlineColor = outlineColor
     }
 }
 

@@ -95,6 +95,20 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
         }
     }
 
+    /// Halo/outline color of a text element; nil for other kinds. Setting is
+    /// a no-op for those kinds and for nil.
+    public var textOutlineColor: RGBAColor? {
+        get {
+            guard case .text(let e) = self else { return nil }
+            return e.outlineColor
+        }
+        set {
+            guard case .text(var e) = self, let color = newValue else { return }
+            e.outlineColor = color
+            self = .text(e)
+        }
+    }
+
     /// Color of the wrapped element; nil for kinds without one (pixelate).
     /// Setting is a no-op for those kinds and for nil.
     public var color: RGBAColor? {

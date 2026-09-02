@@ -201,6 +201,34 @@ final class CanvasControllerTests: XCTestCase {
         XCTAssertFalse(controller.canUndo)
     }
 
+    func testSelectingTextAdoptsItsOutlineColor() {
+        let controller = makeLoadedController()
+        controller.document?.add(.text(TextElement(origin: .zero, string: "hi", outlineColor: .black)))
+        controller.selection = controller.document?.elements.first?.id
+        XCTAssertEqual(controller.textOutlineColor, .black)
+        XCTAssertFalse(controller.canUndo)
+    }
+
+    func testChangingOutlineColorEditsSelectedTextAndIsUndoable() {
+        let controller = makeLoadedController()
+        controller.selection = addText(controller, style: .shadow)
+        controller.textOutlineColor = .black
+        XCTAssertEqual(controller.document?.elements.first?.textOutlineColor, .black)
+        XCTAssertTrue(controller.canUndo)
+        controller.undo()
+        XCTAssertEqual(controller.document?.elements.first?.textOutlineColor, .white)
+    }
+
+    func testChangingOutlineColorLeavesNonTextSelectionUntouched() {
+        let controller = makeLoadedController()
+        let arrow = SegmentElement(start: .zero, end: CGPoint(x: 50, y: 50))
+        controller.document?.add(.arrow(arrow))
+        controller.selection = arrow.id
+        controller.textOutlineColor = .black
+        XCTAssertEqual(controller.document?.elements.first, .arrow(arrow))
+        XCTAssertFalse(controller.canUndo)
+    }
+
     func testTextStyleControlShowsForTextToolOrTextSelection() {
         let controller = makeLoadedController()
         XCTAssertFalse(controller.editsTextStyle)
