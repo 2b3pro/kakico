@@ -104,6 +104,60 @@ final class AnnotationRenderTests: XCTestCase {
         XCTAssertNotEqual(pixelHash(plain), pixelHash(annotated))
     }
 
+    // MARK: - Drop shadows
+
+    /// Skitch-style shadow: a stroke on white leaves a darkened band just
+    /// below it, and nothing above it beyond the blur reach.
+    func testStrokedElementsCastShadowBelow() {
+        let base = solidImage(CGSize(width: 100, height: 100), color: (1, 1, 1))
+        var doc = Document(baseImage: .pngData(Data()), canvasSize: CGSize(width: 100, height: 100))
+        doc.add(.line(SegmentElement(start: CGPoint(x: 20, y: 30), end: CGPoint(x: 80, y: 30), color: .red, width: 6)))
+        let out = Renderer.flatten(doc, baseImage: base, scale: 1)!
+
+        let below = samplePixel(out, x: 50, y: 36)   // just under the 6pt stroke (27...33)
+        XCTAssertLessThan(below.r + below.g + below.b, 720, "expected a shadow band below the stroke")
+        XCTAssertEqual(below.r, below.g, accuracy: 3, "shadow should be neutral, not tinted")
+
+        let above = samplePixel(out, x: 50, y: 18)
+        XCTAssertEqual(above.r + above.g + above.b, 765, "no shadow expected well above the stroke")
+    }
+
+    /// CGContext shadows are specified in device space; the renderer must
+    /// compensate so a 2x export carries the same shadow as 1x, just scaled.
+    func testShadowScalesWithExportScale() {
+        let base = solidImage(CGSize(width: 100, height: 100), color: (1, 1, 1))
+        var doc = Document(baseImage: .pngData(Data()), canvasSize: CGSize(width: 100, height: 100))
+        doc.add(.line(SegmentElement(start: CGPoint(x: 20, y: 30), end: CGPoint(x: 80, y: 30), color: .red, width: 6)))
+        let one = Renderer.flatten(doc, baseImage: base, scale: 1)!
+        let two = Renderer.flatten(doc, baseImage: base, scale: 2)!
+
+        let at1 = samplePixel(one, x: 50, y: 36)
+        let at2 = samplePixel(two, x: 100, y: 72)
+        XCTAssertEqual(at1.r, at2.r, accuracy: 12)
+        XCTAssertLessThan(at2.r + at2.g + at2.b, 720)
+    }
+
+    func testShadowIsPresentOnAllStrokedKinds() {
+        let base = solidImage(CGSize(width: 100, height: 100), color: (1, 1, 1))
+        let kinds: [(String, Annotation)] = [
+            ("arrow", .arrow(SegmentElement(start: CGPoint(x: 10, y: 30), end: CGPoint(x: 90, y: 30), color: .red, width: 6))),
+            ("rectangle", .rectangle(ShapeElement(rect: CGRect(x: 20, y: 10, width: 60, height: 20), color: .red, width: 6))),
+            ("ellipse", .ellipse(ShapeElement(rect: CGRect(x: 20, y: 10, width: 60, height: 20), color: .red, width: 6))),
+        ]
+        for (name, element) in kinds {
+            var doc = Document(baseImage: .pngData(Data()), canvasSize: CGSize(width: 100, height: 100))
+            doc.add(element)
+            let out = Renderer.flatten(doc, baseImage: base, scale: 1)!
+            // Scan the column under the element's bottom edge for any non-white pixel
+            // that is neutral gray (shadow) rather than red (the element itself).
+            let shadowed = (34...42).contains { y in
+                let p = samplePixel(out, x: 50, y: y)
+                return p.r + p.g + p.b < 740 && abs(p.r - p.g) <= 3
+            }
+            XCTAssertTrue(shadowed, "\(name) should cast a shadow below its bottom edge")
+        }
+    }
+
     // MARK: - Redaction render cache
 
     /// Per-pixel gradient: unlike a solid or two-band image, every pixelate
