@@ -34,3 +34,12 @@ open build/Kakico.app
 
 Requirements: macOS 15+, Xcode/Swift toolchain. The build script produces a native
 arm64, ad-hoc-signed bundle (no Apple Developer account required).
+
+## License
+
+This fork's contributions (everything added on top of
+[tk3fftk/kakico](https://github.com/tk3fftk/kakico)) are released under the
+MIT License; see [LICENSE](LICENSE). The original Kakico code is Copyright
+Hiroki Takatsuka and has no license file at the time of writing, so it
+remains all rights reserved until one is added upstream. Redistribution of
+builds of this fork should wait for that.
