@@ -466,6 +466,16 @@ final class CanvasNSView: NSView {
             new = .ellipse(ShapeElement(rect: zeroRect, color: color, width: width))
         case .pixelate:
             new = .pixelate(RedactionElement(rect: zeroRect, amount: controller.pixelateAmount))
+        case .stamp:
+            // Stamps are placed at a default size; the click-drag moves the
+            // new stamp rather than sizing it.
+            let canvasSize = controller.document?.canvasSize ?? DefaultSizeScale.referenceCanvasSize
+            let stamp = StampElement(center: p, radius: StampElement.defaultRadius(forCanvasSize: canvasSize),
+                                     kind: controller.stampKind, color: color)
+            controller.document?.add(.stamp(stamp))
+            controller.selection = stamp.id
+            drag = .moving(stamp.id, last: p)
+            return
         default:
             return
         }

@@ -240,6 +240,65 @@ final class CanvasControllerTests: XCTestCase {
         XCTAssertTrue(controller.editsTextStyle)
     }
 
+    // MARK: - Stamp kind
+
+    private func addStamp(_ controller: CanvasController, kind: StampKind) -> ElementID {
+        let stamp = StampElement(center: CGPoint(x: 50, y: 50), kind: kind)
+        controller.document?.add(.stamp(stamp))
+        return stamp.id
+    }
+
+    func testStampKindDefaultsToCheck() {
+        XCTAssertEqual(CanvasController().stampKind, .check)
+    }
+
+    func testSelectingStampAdoptsItsKindAndColor() {
+        let controller = makeLoadedController()
+        controller.document?.add(.stamp(StampElement(center: .zero, kind: .heart, color: .pink)))
+        controller.selection = controller.document?.elements.first?.id
+        XCTAssertEqual(controller.stampKind, .heart)
+        XCTAssertEqual(controller.strokeColor, .pink)
+        XCTAssertFalse(controller.canUndo)
+    }
+
+    func testChangingKindEditsSelectedStampAndIsUndoable() {
+        let controller = makeLoadedController()
+        let id = addStamp(controller, kind: .check)
+        controller.selection = id
+        controller.stampKind = .question
+        XCTAssertEqual(controller.document?.elements.first?.stampKind, .question)
+        XCTAssertTrue(controller.canUndo)
+        controller.undo()
+        XCTAssertEqual(controller.document?.elements.first?.stampKind, .check)
+    }
+
+    func testChangingKindLeavesNonStampSelectionUntouched() {
+        let controller = makeLoadedController()
+        let id = addText(controller, style: .plain)
+        controller.selection = id
+        controller.stampKind = .heart
+        XCTAssertEqual(controller.document?.elements.first?.textStyle, .plain)
+        XCTAssertFalse(controller.canUndo)
+    }
+
+    func testStampKindControlShowsForStampToolOrStampSelection() {
+        let controller = makeLoadedController()
+        XCTAssertFalse(controller.editsStampKind)
+        controller.tool = .stamp
+        XCTAssertTrue(controller.editsStampKind)
+        XCTAssertFalse(controller.editsTextStyle)
+        controller.tool = .select
+        controller.selection = addStamp(controller, kind: .cross)
+        XCTAssertTrue(controller.editsStampKind)
+    }
+
+    func testStampToolHasNoStrokeWidthGroup() {
+        let controller = makeLoadedController()
+        let before = controller.strokeWidth
+        controller.tool = .stamp
+        XCTAssertEqual(controller.strokeWidth, before, "stamp tool keeps the slider value; it has no width group")
+    }
+
     func testToolSwitchClearsSelection() {
         let controller = makeLoadedController()
         let seg = SegmentElement(start: .zero, end: CGPoint(x: 100, y: 100))
