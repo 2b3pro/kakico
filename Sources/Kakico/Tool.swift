@@ -8,6 +8,7 @@ enum Tool: String, CaseIterable, Identifiable {
     case rectangle
     case ellipse
     case text
+    case stamp
     case pixelate
     case crop
 
@@ -21,6 +22,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .rectangle: return "Rectangle"
         case .ellipse: return "Ellipse"
         case .text: return "Text"
+        case .stamp: return "Stamp"
         case .pixelate: return "Pixelate"
         case .crop: return "Crop"
         }
@@ -35,6 +37,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .rectangle: return "r"
         case .ellipse: return "o"
         case .text: return "t"
+        case .stamp: return "s"
         case .pixelate: return "p"
         case .crop: return "c"
         }
@@ -49,6 +52,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .rectangle: return "rectangle"
         case .ellipse: return "circle"
         case .text: return "textformat"
+        case .stamp: return "mappin.circle"
         case .pixelate: return "squareshape.split.3x3"
         case .crop: return "crop"
         }
@@ -61,7 +65,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .arrow, .line: return .segment
         case .rectangle, .ellipse: return .shape
         case .text: return .text
-        case .select, .pixelate, .crop: return nil
+        case .select, .stamp, .pixelate, .crop: return nil
         }
     }
 }
@@ -84,7 +88,7 @@ extension Annotation {
         case .arrow, .line: return .segment
         case .rectangle, .ellipse: return .shape
         case .text: return .text
-        case .pixelate: return nil
+        case .stamp, .pixelate: return nil
         }
     }
 }

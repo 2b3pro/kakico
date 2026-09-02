@@ -292,6 +292,7 @@ struct ToolPalette: View {
                 .buttonStyle(.plain)
                 .help("\(tool.label) (\(String(tool.shortcutKey).uppercased()))")
                 .keyboardShortcut(.none)
+                .anchorPreference(key: StampRowAnchor.self, value: .bounds) { tool == .stamp ? $0 : nil }
             }
 
             paletteDivider(width: 28, verticalPadding: 4)
@@ -356,8 +357,84 @@ struct ToolPalette: View {
                     .padding(12)
                 }
             }
+
         }
         .miroFloatingPanel()
+        // Glyph flyout beside the Stamp tool row whenever a stamp glyph is
+        // editable. The row's bounds arrive as an anchor preference, resolved
+        // in this same layout pass, so the flyout tracks the row exactly.
+        .overlayPreferenceValue(StampRowAnchor.self) { anchor in
+            GeometryReader { proxy in
+                if let anchor, controller.editsStampKind {
+                    let row = proxy[anchor]
+                    StampKindPanel(controller: controller)
+                        .miroFloatingPanel()
+                        // Both panels pad their tiles by 8, so top-aligning
+                        // the flyout 8 above the row lines the tiles up.
+                        .offset(x: proxy.size.width + 8, y: row.minY - 8)
+                        .transition(.scale(scale: 0.95, anchor: .leading).combined(with: .opacity))
+                }
+            }
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: controller.editsStampKind)
+    }
+}
+
+/// Bounds of the Stamp tool tile, published by the palette so the glyph
+/// flyout can sit beside that row.
+private struct StampRowAnchor: PreferenceKey {
+    static let defaultValue: Anchor<CGRect>? = nil
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = nextValue() ?? value
+    }
+}
+
+/// Horizontal row of the five stamp glyphs; the current one is highlighted.
+private struct StampKindPanel: View {
+    var controller: CanvasController
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(StampKind.allCases, id: \.self) { kind in
+                Button {
+                    controller.stampKind = kind
+                } label: {
+                    tileIcon(kind.symbol,
+                             tint: controller.stampKind == kind ? Color.miroInk : MiroTheme.textSecondary(scheme),
+                             iconSize: 22)
+                        .background(
+                            RoundedRectangle(cornerRadius: 11)
+                                .fill(controller.stampKind == kind ? Color.miroYellow : .clear)
+                        )
+                }
+                .buttonStyle(.plain)
+                .help(kind.label)
+            }
+        }
+    }
+}
+
+extension StampKind {
+    var label: String {
+        switch self {
+        case .check: return "Check"
+        case .cross: return "Cross"
+        case .exclaim: return "Exclamation"
+        case .question: return "Question"
+        case .heart: return "Heart"
+        }
+    }
+
+    /// SF Symbol standing in for the glyph in the palette.
+    var symbol: String {
+        switch self {
+        case .check: return "checkmark.circle.fill"
+        case .cross: return "xmark.circle.fill"
+        case .exclaim: return "exclamationmark.circle.fill"
+        case .question: return "questionmark.circle.fill"
+        case .heart: return "heart.circle.fill"
+        }
     }
 }
 

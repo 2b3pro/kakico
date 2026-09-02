@@ -9,6 +9,7 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
     case rectangle(ShapeElement)
     case ellipse(ShapeElement)
     case text(TextElement)
+    case stamp(StampElement)
     case pixelate(RedactionElement)
 
     public var id: ElementID { geometry.id }
@@ -21,6 +22,7 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
         case .rectangle(let e): return e
         case .ellipse(let e): return e
         case .text(let e): return e
+        case .stamp(let e): return e
         case .pixelate(let e): return e
         }
     }
@@ -36,7 +38,7 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
             switch self {
             case .arrow(let e), .line(let e): return e.width
             case .rectangle(let e), .ellipse(let e): return e.width
-            case .text, .pixelate: return nil
+            case .text, .stamp, .pixelate: return nil
             }
         }
         set {
@@ -46,8 +48,22 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
             case .line(var e): e.width = width; self = .line(e)
             case .rectangle(var e): e.width = width; self = .rectangle(e)
             case .ellipse(var e): e.width = width; self = .ellipse(e)
-            case .text, .pixelate: break
+            case .text, .stamp, .pixelate: break
             }
+        }
+    }
+
+    /// Stamp glyph of a stamp element; nil for other kinds. Setting is a
+    /// no-op for those kinds and for nil.
+    public var stampKind: StampKind? {
+        get {
+            guard case .stamp(let e) = self else { return nil }
+            return e.kind
+        }
+        set {
+            guard case .stamp(var e) = self, let kind = newValue else { return }
+            e.kind = kind
+            self = .stamp(e)
         }
     }
 
@@ -101,6 +117,7 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
             case .arrow(let e), .line(let e): return e.color
             case .rectangle(let e), .ellipse(let e): return e.color
             case .text(let e): return e.color
+            case .stamp(let e): return e.color
             case .pixelate: return nil
             }
         }
@@ -112,6 +129,7 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
             case .rectangle(var e): e.color = color; self = .rectangle(e)
             case .ellipse(var e): e.color = color; self = .ellipse(e)
             case .text(var e): e.color = color; self = .text(e)
+            case .stamp(var e): e.color = color; self = .stamp(e)
             case .pixelate: break
             }
         }
@@ -128,7 +146,7 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
         case .rectangle(let e): return .rectangle(Self.defaultSized(e, canvasSize: canvasSize))
         case .ellipse(let e):   return .ellipse(Self.defaultSized(e, canvasSize: canvasSize))
         case .pixelate(let e):  return .pixelate(Self.defaultSized(e, canvasSize: canvasSize))
-        case .text:             return self   // already placed at a default size
+        case .text, .stamp:     return self   // already placed at a default size
         }
     }
 
@@ -166,6 +184,7 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
         case .rectangle(var e): var g: AnnotationGeometry = e; body(&g); e = g as! ShapeElement; self = .rectangle(e)
         case .ellipse(var e): var g: AnnotationGeometry = e; body(&g); e = g as! ShapeElement; self = .ellipse(e)
         case .text(var e): var g: AnnotationGeometry = e; body(&g); e = g as! TextElement; self = .text(e)
+        case .stamp(var e): var g: AnnotationGeometry = e; body(&g); e = g as! StampElement; self = .stamp(e)
         case .pixelate(var e): var g: AnnotationGeometry = e; body(&g); e = g as! RedactionElement; self = .pixelate(e)
         }
     }
