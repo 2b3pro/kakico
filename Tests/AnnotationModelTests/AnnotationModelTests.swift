@@ -95,6 +95,51 @@ final class AnnotationModelTests: XCTestCase {
         XCTAssertEqual(arrow.handles(), line.handles())
     }
 
+    func testTextElementDefaultsToShadowStyle() {
+        XCTAssertEqual(TextElement(origin: .zero).style, .shadow)
+    }
+
+    func testTextStyleRoundTripsThroughCodable() throws {
+        let text = TextElement(origin: .zero, string: "x", style: .outline)
+        let data = try JSONEncoder().encode(Annotation.text(text))
+        let decoded = try JSONDecoder().decode(Annotation.self, from: data)
+        XCTAssertEqual(decoded.textStyle, .outline)
+    }
+
+    func testTextOutlineColorDefaultsToWhiteAndRoundTrips() throws {
+        XCTAssertEqual(TextElement(origin: .zero).outlineColor, .white)
+        let text = TextElement(origin: .zero, string: "x", outlineColor: .black)
+        let data = try JSONEncoder().encode(Annotation.text(text))
+        XCTAssertEqual(try JSONDecoder().decode(Annotation.self, from: data).textOutlineColor, .black)
+    }
+
+    func testTextOutlineColorAccessorIsNilForNonText() {
+        var arrow = Annotation.arrow(SegmentElement(start: .zero, end: CGPoint(x: 1, y: 1)))
+        XCTAssertNil(arrow.textOutlineColor)
+        arrow.textOutlineColor = .black
+        XCTAssertNil(arrow.textOutlineColor)
+        var text = Annotation.text(TextElement(origin: .zero))
+        text.textOutlineColor = .black
+        XCTAssertEqual(text.textOutlineColor, .black)
+    }
+
+    func testInitialTextWidthScalesWithAFloor() {
+        XCTAssertEqual(DefaultInitialSize.textWidth(forCanvasSize: DefaultSizeScale.referenceCanvasSize), 260)
+        XCTAssertEqual(DefaultInitialSize.textWidth(forCanvasSize: CGSize(width: 2400, height: 2000)), 520)
+        XCTAssertEqual(DefaultInitialSize.textWidth(forCanvasSize: CGSize(width: 300, height: 200)), 200,
+                       "small images still get a 200px box")
+    }
+
+    func testTextStyleAccessorIsNilForNonText() {
+        var arrow = Annotation.arrow(SegmentElement(start: .zero, end: CGPoint(x: 1, y: 1)))
+        XCTAssertNil(arrow.textStyle)
+        arrow.textStyle = .plain
+        XCTAssertNil(arrow.textStyle, "setting on a non-text kind is a no-op")
+        var text = Annotation.text(TextElement(origin: .zero))
+        text.textStyle = .plain
+        XCTAssertEqual(text.textStyle, .plain)
+    }
+
     func testTextElementCodableKeepsOriginAndSize() throws {
         let text = TextElement(origin: CGPoint(x: 7, y: 9), size: CGSize(width: 120, height: 30),
                                string: "hello")

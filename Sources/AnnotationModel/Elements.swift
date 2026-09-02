@@ -105,6 +105,16 @@ public struct ShapeElement: Codable, Equatable, Sendable, RectGeometry {
 
 // MARK: - Text
 
+/// Skitch's three text treatments.
+public enum TextStyle: String, Codable, Equatable, Sendable, CaseIterable {
+    /// Fill plus a thin white halo and a drop shadow; Skitch's default.
+    case shadow
+    /// Fill plus a heavy black outline, no shadow; Skitch's "highlighted" look.
+    case outline
+    /// Fill only.
+    case plain
+}
+
 public struct TextElement: Codable, Equatable, Sendable, RectGeometry {
     public var id: ElementID
     public var origin: CGPoint        // top-left of the text box
@@ -112,6 +122,10 @@ public struct TextElement: Codable, Equatable, Sendable, RectGeometry {
     public var string: String
     public var font: FontSpec
     public var color: RGBAColor
+    public var style: TextStyle
+    /// Color of the halo (shadow style) or outline (outline style); white
+    /// or black in the UI, ignored by the plain style.
+    public var outlineColor: RGBAColor
 
     /// Rect-backed view over the stored origin/size (which stay the encoded
     /// representation).
@@ -121,9 +135,11 @@ public struct TextElement: Codable, Equatable, Sendable, RectGeometry {
     }
 
     public init(id: ElementID = UUID(), origin: CGPoint, size: CGSize = CGSize(width: 160, height: 40),
-                string: String = "", font: FontSpec = FontSpec(), color: RGBAColor = .red) {
+                string: String = "", font: FontSpec = FontSpec(), color: RGBAColor = .red,
+                style: TextStyle = .shadow, outlineColor: RGBAColor = .white) {
         self.id = id; self.origin = origin; self.size = size
         self.string = string; self.font = font; self.color = color
+        self.style = style; self.outlineColor = outlineColor
     }
 }
 

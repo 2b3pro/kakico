@@ -97,6 +97,7 @@ public enum Renderer {
         case .rectangle(let e): drawRect(e, in: ctx)
         case .ellipse(let e): drawEllipse(e, in: ctx)
         case .text(let e): drawText(e, in: ctx)
+        case .stamp(let e): drawStamp(e, in: ctx)
         case .pixelate(let e): drawRedaction(e.rect, amount: e.amount, base: base, canvasSize: canvasSize, in: ctx)
         }
     }
@@ -199,15 +200,31 @@ public enum Renderer {
         }
     }
 
-    private static func attributedString(for e: TextElement) -> NSAttributedString {
+    /// Outline pass thickness as a percentage of the point size, the unit
+    /// CoreText's stroke-width attribute uses. The stroke straddles the glyph
+    /// edge, so the visible outer rim is half of this; the fill pass drawn on
+    /// top covers the inner half.
+    private static let haloStrokePercent: Double = 12
+    private static let outlineStrokePercent: Double = 18
+
+    /// Fill attributes, or a stroke-only pass when `stroke` is given. Stroke
+    /// attributes do not change glyph advances, so the two passes line up.
+    private static func attributedString(for e: TextElement,
+                                         stroke: (color: RGBAColor, percent: Double)? = nil) -> NSAttributedString {
         let traits: CTFontSymbolicTraits = e.font.bold ? .traitBold : []
         let base = CTFontCreateWithName(e.font.family as CFString, e.font.pointSize, nil)
         let font = CTFontCreateCopyWithSymbolicTraits(base, e.font.pointSize, nil, traits, traits) ?? base
         let color = CGColor(red: e.color.r, green: e.color.g, blue: e.color.b, alpha: e.color.a)
-        let attrs: [NSAttributedString.Key: Any] = [
+        var attrs: [NSAttributedString.Key: Any] = [
             NSAttributedString.Key(kCTFontAttributeName as String): font,
             NSAttributedString.Key(kCTForegroundColorAttributeName as String): color,
         ]
+        if let stroke {
+            // A positive stroke width means stroke only (no fill).
+            attrs[NSAttributedString.Key(kCTStrokeWidthAttributeName as String)] = stroke.percent
+            attrs[NSAttributedString.Key(kCTStrokeColorAttributeName as String)] =
+                CGColor(red: stroke.color.r, green: stroke.color.g, blue: stroke.color.b, alpha: stroke.color.a)
+        }
         return NSAttributedString(string: e.string, attributes: attrs)
     }
 
@@ -230,13 +247,55 @@ public enum Renderer {
 
     private static func drawText(_ e: TextElement, in ctx: CGContext) {
         guard !e.string.isEmpty else { return }
-        let framesetter = CTFramesetterCreateWithAttributedString(attributedString(for: e))
-        let path = CGPath(rect: e.boundingBox(), transform: nil)
-        let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: 0), path, nil)
-
-        withYFlip(around: e.boundingBox(), in: ctx) {
+        let box = e.boundingBox()
+        let path = CGPath(rect: box, transform: nil)
+        func drawPass(_ attributed: NSAttributedString) {
+            let framesetter = CTFramesetterCreateWithAttributedString(attributed)
+            let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: 0), path, nil)
             CTFrameDraw(frame, ctx)
         }
+        let fill = attributedString(for: e)
+
+        withYFlip(around: box, in: ctx) {
+            // Glyph outlines are stroked with the context's join; round keeps
+            // the outline from spiking at sharp corners.
+            ctx.setLineJoin(.round)
+            switch e.style {
+            case .plain:
+                drawPass(fill)
+            case .outline:
+                drawPass(attributedString(for: e, stroke: (e.outlineColor, outlineStrokePercent)))
+                drawPass(fill)
+            case .shadow:
+                withShadow(forStrokeWidth: FontSpec.strokeWidth(forPointSize: e.font.pointSize), in: ctx) {
+                    drawPass(attributedString(for: e, stroke: (e.outlineColor, haloStrokePercent)))
+                    drawPass(fill)
+                }
+            }
+        }
+    }
+
+    /// Skitch pin: white halo around the silhouette, drop shadow, colored
+    /// fill, a thin white ring inside the disk, and the white glyph.
+    private static func drawStamp(_ e: StampElement, in ctx: CGContext) {
+        let r = e.radius
+        let pin = StampPaths.pinPath(for: e)
+        withShadow(forStrokeWidth: r * 0.3, in: ctx) {
+            ctx.setLineJoin(.round)
+            ctx.setStrokeColor(red: 1, green: 1, blue: 1, alpha: 1)
+            ctx.setLineWidth(r * 0.12)
+            ctx.addPath(pin)
+            ctx.strokePath()
+            setFill(ctx, e.color)
+            ctx.addPath(pin)
+            ctx.fillPath()
+        }
+        ctx.setStrokeColor(red: 1, green: 1, blue: 1, alpha: 1)
+        ctx.setLineWidth(r * 0.07)
+        ctx.strokeEllipse(in: e.diskRect.insetBy(dx: r * 0.28, dy: r * 0.28))
+        ctx.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
+        ctx.addPath(StampPaths.path(for: e.kind, in: e.diskRect.insetBy(dx: r * 0.5, dy: r * 0.5)))
+        ctx.fillPath()
     }
 
     private static func drawRedaction(_ rect: CGRect, amount: CGFloat,

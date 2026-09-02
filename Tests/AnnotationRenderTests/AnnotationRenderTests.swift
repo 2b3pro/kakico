@@ -158,6 +158,118 @@ final class AnnotationRenderTests: XCTestCase {
         }
     }
 
+    // MARK: - Text styles
+
+    private func textDoc(style: TextStyle, color: RGBAColor, outline: RGBAColor = .white) -> Document {
+        var doc = Document(baseImage: .pngData(Data()), canvasSize: CGSize(width: 200, height: 80))
+        doc.add(.text(TextElement(origin: CGPoint(x: 10, y: 10), size: CGSize(width: 180, height: 60),
+                                  string: "Hello", font: FontSpec(pointSize: 36), color: color, style: style,
+                                  outlineColor: outline)))
+        return doc
+    }
+
+    private func pixels(_ image: CGImage) -> [(r: Int, g: Int, b: Int)] {
+        (0..<image.height).flatMap { y in (0..<image.width).map { x in samplePixel(image, x: x, y: y) } }
+    }
+
+    /// Outline style draws a black outline around the glyphs; plain does not.
+    func testOutlineStyleAddsBlackOutline() {
+        let base = solidImage(CGSize(width: 200, height: 80), color: (1, 1, 1))
+        let isBlack: ((r: Int, g: Int, b: Int)) -> Bool = { $0.r < 60 && $0.g < 60 && $0.b < 60 }
+        let outlined = Renderer.flatten(textDoc(style: .outline, color: .yellow, outline: .black), baseImage: base, scale: 1)!
+        XCTAssertTrue(pixels(outlined).contains(where: isBlack), "outline style should produce black pixels")
+        let whiteOutlined = Renderer.flatten(textDoc(style: .outline, color: .yellow, outline: .white), baseImage: base, scale: 1)!
+        XCTAssertFalse(pixels(whiteOutlined).contains(where: isBlack), "a white outline draws no black")
+        let plain = Renderer.flatten(textDoc(style: .plain, color: .yellow), baseImage: base, scale: 1)!
+        XCTAssertFalse(pixels(plain).contains(where: isBlack), "plain style should not produce black pixels")
+    }
+
+    /// The halo takes the outline color too: black halo on white shows black.
+    func testShadowStyleHaloUsesOutlineColor() {
+        let white = solidImage(CGSize(width: 200, height: 80), color: (1, 1, 1))
+        let isBlack: ((r: Int, g: Int, b: Int)) -> Bool = { $0.r < 60 && $0.g < 60 && $0.b < 60 }
+        let blackHalo = Renderer.flatten(textDoc(style: .shadow, color: .yellow, outline: .black), baseImage: white, scale: 1)!
+        XCTAssertTrue(pixels(blackHalo).contains(where: isBlack))
+        let whiteHalo = Renderer.flatten(textDoc(style: .shadow, color: .yellow, outline: .white), baseImage: white, scale: 1)!
+        XCTAssertFalse(pixels(whiteHalo).contains(where: isBlack))
+    }
+
+    /// Shadow style draws a white halo around the glyphs (visible on black)
+    /// and a neutral drop shadow (visible on white); plain does neither.
+    func testShadowStyleAddsWhiteHaloAndShadow() {
+        let black = solidImage(CGSize(width: 200, height: 80), color: (0, 0, 0))
+        let isWhite: ((r: Int, g: Int, b: Int)) -> Bool = { $0.r > 200 && $0.g > 200 && $0.b > 200 }
+        let shadowed = Renderer.flatten(textDoc(style: .shadow, color: .red), baseImage: black, scale: 1)!
+        XCTAssertTrue(pixels(shadowed).contains(where: isWhite), "shadow style should halo the glyphs in white")
+        let plain = Renderer.flatten(textDoc(style: .plain, color: .red), baseImage: black, scale: 1)!
+        XCTAssertFalse(pixels(plain).contains(where: isWhite))
+
+        let white = solidImage(CGSize(width: 200, height: 80), color: (1, 1, 1))
+        let isGray: ((r: Int, g: Int, b: Int)) -> Bool = {
+            abs($0.r - $0.g) <= 4 && abs($0.g - $0.b) <= 4 && $0.r < 235 && $0.r > 40
+        }
+        let onWhite = Renderer.flatten(textDoc(style: .shadow, color: .red), baseImage: white, scale: 1)!
+        XCTAssertTrue(pixels(onWhite).contains(where: isGray), "shadow style should cast a gray shadow")
+        let plainOnWhite = Renderer.flatten(textDoc(style: .plain, color: .red), baseImage: white, scale: 1)!
+        XCTAssertFalse(pixels(plainOnWhite).contains(where: isGray))
+    }
+
+    // MARK: - Stamps
+
+    private func stampDoc(_ kind: StampKind, color: RGBAColor = .red) -> Document {
+        var doc = Document(baseImage: .pngData(Data()), canvasSize: CGSize(width: 200, height: 200))
+        doc.add(.stamp(StampElement(center: CGPoint(x: 100, y: 80), radius: 40, kind: kind, color: color)))
+        return doc
+    }
+
+    /// Colored disk, white ring inside it, colored tail below (default
+    /// pointer points down), and white halo just outside the disk.
+    func testStampDrawsDiskRingTailAndHalo() {
+        let base = solidImage(CGSize(width: 200, height: 200), color: (0, 0, 0))
+        let out = Renderer.flatten(stampDoc(.check, color: .red), baseImage: base, scale: 1)!
+
+        let disk = samplePixel(out, x: 100 + 36, y: 80)          // 0.9r, right of center
+        XCTAssertGreaterThan(disk.r, 180); XCTAssertLessThan(disk.g, 90)
+        // The ring is a few pixels wide; scan its band rather than one pixel.
+        let ringHit = (24...34).contains { dy in
+            let p = samplePixel(out, x: 100, y: 80 - dy)
+            return min(p.r, p.g, p.b) > 200
+        }
+        XCTAssertTrue(ringHit, "white ring inside the disk")
+        let tail = samplePixel(out, x: 100, y: 80 + Int(40 * 1.5))
+        XCTAssertGreaterThan(tail.r, 180); XCTAssertLessThan(tail.g, 90)
+        let halo = samplePixel(out, x: 100 - 42, y: 80)         // 1.05r, left of center
+        XCTAssertGreaterThan(min(halo.r, halo.g, halo.b), 180, "white halo outside the disk on black")
+    }
+
+    func testStampGlyphIsWhiteAtItsCenterForBarGlyphs() {
+        let base = solidImage(CGSize(width: 200, height: 200), color: (0, 0, 0))
+        // The cross and exclaim glyphs both cover the disk center.
+        for kind in [StampKind.cross, .exclaim] {
+            let out = Renderer.flatten(stampDoc(kind), baseImage: base, scale: 1)!
+            let p = samplePixel(out, x: 100, y: 80)
+            XCTAssertGreaterThan(min(p.r, p.g, p.b), 200, "\(kind) glyph should be white at the center")
+        }
+    }
+
+    func testEveryStampKindRendersDistinctly() {
+        let base = solidImage(CGSize(width: 200, height: 200), color: (1, 1, 1))
+        let hashes = StampKind.allCases.map { pixelHash(Renderer.flatten(stampDoc($0), baseImage: base, scale: 1)!) }
+        XCTAssertEqual(Set(hashes).count, StampKind.allCases.count)
+    }
+
+    func testStampTailFollowsPointerAngle() {
+        let base = solidImage(CGSize(width: 200, height: 200), color: (0, 0, 0))
+        var doc = Document(baseImage: .pngData(Data()), canvasSize: CGSize(width: 200, height: 200))
+        doc.add(.stamp(StampElement(center: CGPoint(x: 100, y: 100), radius: 40, kind: .heart, color: .red,
+                                    pointerAngle: 0)))   // points right
+        let out = Renderer.flatten(doc, baseImage: base, scale: 1)!
+        let right = samplePixel(out, x: 160, y: 100)
+        XCTAssertGreaterThan(right.r, 180)
+        let below = samplePixel(out, x: 100, y: 160)
+        XCTAssertLessThan(below.r, 40, "nothing drawn below when the tail points right")
+    }
+
     // MARK: - Redaction render cache
 
     /// Per-pixel gradient: unlike a solid or two-band image, every pixelate

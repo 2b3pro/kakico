@@ -466,6 +466,17 @@ final class CanvasNSView: NSView {
             new = .ellipse(ShapeElement(rect: zeroRect, color: color, width: width))
         case .pixelate:
             new = .pixelate(RedactionElement(rect: zeroRect, amount: controller.pixelateAmount))
+        case .stamp:
+            // Stamps are placed at a default size at the click point; the
+            // click-drag swings the tail so it points the way you drag. A
+            // plain click keeps the default (down) direction.
+            let canvasSize = controller.document?.canvasSize ?? DefaultSizeScale.referenceCanvasSize
+            let stamp = StampElement(center: p, radius: StampElement.defaultRadius(forCanvasSize: canvasSize),
+                                     kind: controller.stampKind, color: color)
+            controller.document?.add(.stamp(stamp))
+            controller.selection = stamp.id
+            drag = .creating(stamp.id, .end)
+            return
         default:
             return
         }
@@ -476,10 +487,14 @@ final class CanvasNSView: NSView {
 
     private func createText(at p: CGPoint) {
         guard let controller else { return }
-        let element = TextElement(origin: p, size: CGSize(width: 220, height: 44),
+        let canvasSize = controller.document?.canvasSize ?? DefaultSizeScale.referenceCanvasSize
+        let element = TextElement(origin: p,
+                                  size: CGSize(width: DefaultInitialSize.textWidth(forCanvasSize: canvasSize), height: 44),
                                   string: "",
                                   font: FontSpec(pointSize: FontSpec.suggestedPointSize(forStrokeWidth: controller.strokeWidth)),
-                                  color: controller.strokeColor)
+                                  color: controller.strokeColor,
+                                  style: controller.textStyle,
+                                  outlineColor: controller.textOutlineColor)
         controller.document?.add(.text(element))
         controller.selection = element.id
         drag = .none
@@ -499,7 +514,15 @@ final class CanvasNSView: NSView {
             controller.document?.mutate(id) { $0.translate(by: delta) }
             drag = .moving(id, last: p)
         case .handle(let id, let role), .creating(let id, let role):
-            controller.document?.mutate(id) { $0.moveHandle(role, to: p) }
+            controller.document?.mutate(id) {
+                $0.moveHandle(role, to: p)
+                // Text wraps at its width: re-measure the height so a
+                // narrower box grows instead of clipping lines.
+                if case .text(var t) = $0 {
+                    t.size.height = Renderer.suggestedSize(for: t).height
+                    $0 = .text(t)
+                }
+            }
         case .cropping(let anchor):
             controller.document?.crop = CGRect(corner: anchor, p)
         case .movingCrop(let last):
