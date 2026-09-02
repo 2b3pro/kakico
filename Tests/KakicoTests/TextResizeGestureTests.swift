@@ -19,7 +19,7 @@ final class TextResizeGestureTests: XCTestCase {
         let ctx = CGContext(data: nil, width: 200, height: 200, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpaceCreateDeviceRGB(),
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        let controller = CanvasController()
+        let controller = CanvasController(preferencesStore: InMemoryToolPreferencesStore())
         controller.loadImage(ctx.makeImage()!)
         controller.zoomMode = .percent(1)
         var text = TextElement(origin: CGPoint(x: 10, y: 10), size: CGSize(width: 180, height: 10),

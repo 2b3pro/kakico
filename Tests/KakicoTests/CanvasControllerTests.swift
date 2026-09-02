@@ -19,7 +19,7 @@ final class CanvasControllerTests: XCTestCase {
     /// reference canvas, so the expected widths are double the references
     /// (segment 32, shape 16).
     private func makeLoadedController() -> CanvasController {
-        let controller = CanvasController()
+        let controller = CanvasController(preferencesStore: InMemoryToolPreferencesStore())
         controller.loadImage(makeImage(width: 2400, height: 2000))
         return controller
     }
@@ -33,16 +33,20 @@ final class CanvasControllerTests: XCTestCase {
     }
 
     func testLoadImageClampsStrokeWidthToSliderRange() {
-        let controller = CanvasController()
+        let controller = CanvasController(preferencesStore: InMemoryToolPreferencesStore())
         controller.loadImage(makeImage(width: 20, height: 20))
         XCTAssertEqual(controller.strokeWidth, DefaultStrokeWidth.range.lowerBound)
     }
 
-    func testLoadingNewImageResetsUserAdjustedStrokeWidth() {
-        let controller = makeLoadedController()
-        controller.strokeWidth = 3
+    /// A user-adjusted width is remembered across images, rescaled to each
+    /// image's size (it is stored relative to the reference canvas).
+    func testLoadingNewImageKeepsUserAdjustedStrokeWidthRescaled() {
+        let controller = makeLoadedController()        // 2x reference
+        controller.strokeWidth = 8                     // reference 4
         controller.loadImage(makeImage(width: 2400, height: 2000))
-        XCTAssertEqual(controller.strokeWidth, 32)
+        XCTAssertEqual(controller.strokeWidth, 8, "same-size image: same width")
+        controller.loadImage(makeImage(width: 1200, height: 1000))
+        XCTAssertEqual(controller.strokeWidth, 4, "reference-size image: half the width")
     }
 
     // MARK: - Per-tool-group stroke width memory
@@ -96,7 +100,7 @@ final class CanvasControllerTests: XCTestCase {
     }
 
     func testLoadImageClampsPixelateAmountToRange() {
-        let controller = CanvasController()
+        let controller = CanvasController(preferencesStore: InMemoryToolPreferencesStore())
         controller.loadImage(makeImage(width: 20, height: 20))
         XCTAssertEqual(controller.pixelateAmount, RedactionElement.amountRange.lowerBound)
     }
@@ -169,7 +173,7 @@ final class CanvasControllerTests: XCTestCase {
     }
 
     func testTextStyleDefaultsToShadow() {
-        XCTAssertEqual(CanvasController().textStyle, .shadow)
+        XCTAssertEqual(CanvasController(preferencesStore: InMemoryToolPreferencesStore()).textStyle, .shadow)
     }
 
     func testSelectingTextAdoptsItsStyle() {
@@ -249,7 +253,7 @@ final class CanvasControllerTests: XCTestCase {
     }
 
     func testStampKindDefaultsToCheck() {
-        XCTAssertEqual(CanvasController().stampKind, .check)
+        XCTAssertEqual(CanvasController(preferencesStore: InMemoryToolPreferencesStore()).stampKind, .check)
     }
 
     func testSelectingStampAdoptsItsKindAndColor() {
@@ -308,7 +312,7 @@ final class CanvasControllerTests: XCTestCase {
     }
 
     func testPenOpacityDefaultsToOpaque() {
-        XCTAssertEqual(CanvasController().penOpacity, 1)
+        XCTAssertEqual(CanvasController(preferencesStore: InMemoryToolPreferencesStore()).penOpacity, 1)
     }
 
     func testSelectingPenAdoptsItsOpacityWithoutUndo() {

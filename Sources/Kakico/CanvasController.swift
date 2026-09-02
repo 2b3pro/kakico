@@ -23,33 +23,49 @@ final class CanvasController {
         didSet {
             selection = nil
             adoptStrokeWidthForTool()
+            persistPreferences()
         }
     }
     /// True while the inline text annotation editor is active; disables the
     /// unmodified single-letter tool shortcuts so they don't steal typing.
     var isEditingText = false
     var strokeColor: RGBAColor = .red {
-        didSet { applyColorToSelection() }
+        didSet {
+            applyColorToSelection()
+            persistPreferences()
+        }
     }
     /// Opacity for new pen strokes (1 = pen, lower = highlighter); edits the
     /// selected pen stroke when one is selected (mirrors `strokeWidth`).
     var penOpacity: CGFloat = 1 {
-        didSet { applyPenOpacityToSelection() }
+        didSet {
+            applyPenOpacityToSelection()
+            persistPreferences()
+        }
     }
     /// Treatment for new text elements; edits the selected text element when
     /// one is selected (mirrors `strokeColor`).
     var textStyle: TextStyle = .shadow {
-        didSet { applyTextStyleToSelection() }
+        didSet {
+            applyTextStyleToSelection()
+            persistPreferences()
+        }
     }
     /// Glyph for new stamps; edits the selected stamp when one is selected.
     var stampKind: StampKind = .check {
-        didSet { applyStampKindToSelection() }
+        didSet {
+            applyStampKindToSelection()
+            persistPreferences()
+        }
     }
 
     /// Halo/outline color for new text (white or black); edits the selected
     /// text element when one is selected.
     var textOutlineColor: RGBAColor = .white {
-        didSet { applyTextOutlineColorToSelection() }
+        didSet {
+            applyTextOutlineColorToSelection()
+            persistPreferences()
+        }
     }
     var strokeWidth: CGFloat = DefaultStrokeWidth.segmentReferenceWidth {
         didSet {
@@ -60,22 +76,65 @@ final class CanvasController {
     /// Pixel block size for new pixelate elements; edits the selected pixelate
     /// element when one is selected (mirrors `strokeWidth`).
     var pixelateAmount: CGFloat = RedactionElement.defaultPixelateAmount {
-        didSet { applyPixelateAmountToSelection() }
+        didSet {
+            applyPixelateAmountToSelection()
+            rememberPixelateAmount()
+        }
     }
     /// Per-group stroke width memory: each tool family keeps its own width so
     /// thick arrows don't force thick shape outlines. `strokeWidth` mirrors
-    /// the active group's value.
-    private var groupWidths = CanvasController.defaultGroupWidths(forCanvasSize: DefaultSizeScale.referenceCanvasSize)
+    /// the active group's value. These are the widths for the current canvas;
+    /// `referenceWidths` holds the same memory relative to the reference
+    /// canvas, which is what gets persisted and rescaled for the next image.
+    private var groupWidths: [StrokeWidthGroup: CGFloat]
+    private var referenceWidths: [StrokeWidthGroup: CGFloat]
+    private var referencePixelateAmount: CGFloat
+    @ObservationIgnored private let preferencesStore: ToolPreferencesStore
+
+    init(preferencesStore: ToolPreferencesStore = UserDefaultsToolPreferencesStore()) {
+        self.preferencesStore = preferencesStore
+        let prefs = preferencesStore.load() ?? ToolPreferences()
+        referenceWidths = prefs.referenceWidths
+        referencePixelateAmount = prefs.referencePixelateAmount
+        groupWidths = Self.scaledWidths(prefs.referenceWidths, forCanvasSize: DefaultSizeScale.referenceCanvasSize)
+        tool = prefs.tool
+        strokeColor = prefs.strokeColor
+        penOpacity = prefs.penOpacity
+        textStyle = prefs.textStyle
+        textOutlineColor = prefs.textOutlineColor
+        stampKind = prefs.stampKind
+        pixelateAmount = prefs.referencePixelateAmount
+        strokeWidth = groupWidths[prefs.tool.strokeWidthGroup ?? .segment] ?? DefaultStrokeWidth.segmentReferenceWidth
+    }
 
     /// The reference widths scaled and clamped to the canvas; at the reference
     /// canvas size these are the reference widths themselves.
-    private static func defaultGroupWidths(forCanvasSize size: CGSize) -> [StrokeWidthGroup: CGFloat] {
-        [
-            .segment: DefaultStrokeWidth.width(reference: DefaultStrokeWidth.segmentReferenceWidth, forCanvasSize: size),
-            .shape: DefaultStrokeWidth.width(reference: DefaultStrokeWidth.shapeReferenceWidth, forCanvasSize: size),
-            .pen: DefaultStrokeWidth.width(reference: DefaultStrokeWidth.penReferenceWidth, forCanvasSize: size),
-            .text: DefaultStrokeWidth.width(reference: DefaultStrokeWidth.segmentReferenceWidth, forCanvasSize: size),
-        ]
+    private static func scaledWidths(_ references: [StrokeWidthGroup: CGFloat],
+                                     forCanvasSize size: CGSize) -> [StrokeWidthGroup: CGFloat] {
+        references.mapValues { DefaultStrokeWidth.width(reference: $0, forCanvasSize: size) }
+    }
+
+    /// Size factor of the current canvas relative to the reference canvas.
+    private var canvasFactor: CGFloat {
+        DefaultSizeScale.factor(forCanvasSize: document?.canvasSize ?? DefaultSizeScale.referenceCanvasSize)
+    }
+
+    /// Snapshot of the persisted tool state.
+    var toolPreferences: ToolPreferences {
+        var prefs = ToolPreferences()
+        prefs.tool = tool
+        prefs.strokeColor = strokeColor
+        prefs.referenceWidths = referenceWidths
+        prefs.referencePixelateAmount = referencePixelateAmount
+        prefs.penOpacity = penOpacity
+        prefs.textStyle = textStyle
+        prefs.textOutlineColor = textOutlineColor
+        prefs.stampKind = stampKind
+        return prefs
+    }
+
+    private func persistPreferences() {
+        preferencesStore.save(toolPreferences)
     }
     private static let exportBoundsKey = "exportBounds"
     var exportBounds: ExportBounds = UserDefaults.standard.rawRepresentable(
@@ -163,8 +222,13 @@ final class CanvasController {
         document = Document(baseImage: ref, canvasSize: size)
         self.sourceURL = sourceURL
         selection = nil
-        groupWidths = Self.defaultGroupWidths(forCanvasSize: size)
-        pixelateAmount = RedactionElement.defaultAmount(forCanvasSize: size)
+        groupWidths = Self.scaledWidths(referenceWidths, forCanvasSize: size)
+        // Rescaling the remembered pixel size is not a user change: keep the
+        // reference as is (dividing a clamped value back would drift it).
+        isSyncing = true
+        pixelateAmount = DefaultSizeScale.scaledDefault(reference: referencePixelateAmount,
+                                                        clampedTo: RedactionElement.amountRange, forCanvasSize: size)
+        isSyncing = false
         adoptStrokeWidthForTool()
         undoStack.removeAll()
         redoStack.removeAll()
@@ -279,10 +343,22 @@ final class CanvasController {
         }
     }
 
-    /// The single write path into `groupWidths`.
+    /// The single write path into `groupWidths`; also records the width
+    /// relative to the reference canvas and persists it.
     private func rememberWidth(_ width: CGFloat, for group: StrokeWidthGroup?) {
         guard let group else { return }
         groupWidths[group] = width
+        referenceWidths[group] = width / canvasFactor
+        persistPreferences()
+    }
+
+    /// Records a user-driven pixel size relative to the reference canvas.
+    /// Skipped while syncing (the value came from an image load or a selected
+    /// element, not the slider).
+    private func rememberPixelateAmount() {
+        guard !isSyncing else { return }
+        referencePixelateAmount = pixelateAmount / canvasFactor
+        persistPreferences()
     }
 
     /// True when the size slider edits the pixelate block size instead of the
