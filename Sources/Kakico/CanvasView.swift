@@ -548,7 +548,21 @@ final class CanvasNSView: NSView {
 
     // MARK: Pan
 
+    /// Zoom factor per unit of Cmd+scroll: a mouse-wheel notch (delta ±1)
+    /// is about 10%; precise trackpad deltas are larger, so they get a
+    /// gentler exponent.
+    private static func zoomFactor(forScroll event: NSEvent) -> CGFloat {
+        let k: CGFloat = event.hasPreciseScrollingDeltas ? 0.005 : 0.1
+        return exp(event.scrollingDeltaY * k)
+    }
+
     override func scrollWheel(with event: NSEvent) {
+        // Cmd+scroll zooms about the pointer, in fit mode too.
+        if event.modifierFlags.contains(.command) {
+            guard let controller, controller.hasDocument, case .none = drag else { return }
+            zoom(by: Self.zoomFactor(forScroll: event), anchoredAt: convert(event.locationInWindow, from: nil))
+            return
+        }
         // Fit mode never overflows the viewport; bail before paying for
         // displayInfo (a Document copy + O(n) scan) on every scroll tick.
         guard let controller, controller.hasDocument,
@@ -589,13 +603,20 @@ final class CanvasNSView: NSView {
             super.magnify(with: event)
             return
         }
+        zoom(by: 1 + event.magnification, anchoredAt: convert(event.locationInWindow, from: nil))
+    }
+
+    /// Scales the zoom by `factor` (clamped) keeping the image point under
+    /// `anchor` (view coordinates) fixed on screen. Shared by pinch and
+    /// Cmd+scroll.
+    private func zoom(by factor: CGFloat, anchoredAt anchor: CGPoint) {
+        guard let controller else { return }
         let info = displayInfo
         let oldScale = info.scale
-        let newScale = ZoomMath.clampedScale(oldScale * (1 + event.magnification),
+        let newScale = ZoomMath.clampedScale(oldScale * factor,
                                              canvas: info.canvas.size, viewport: bounds.size)
         guard newScale != oldScale else { return }
         if textEditor != nil { commitTextEditing() }  // editor font has the old scale baked in
-        let anchor = convert(event.locationInWindow, from: nil)
         let pan = ZoomMath.panPreservingPoint(anchor, oldPan: panOffset,
                                               oldScale: oldScale, newScale: newScale,
                                               canvas: info.canvas.size, viewport: bounds.size)
