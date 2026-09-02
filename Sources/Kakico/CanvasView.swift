@@ -465,6 +465,9 @@ final class CanvasNSView: NSView {
             new = .rectangle(ShapeElement(rect: zeroRect, color: color, width: width))
         case .ellipse:
             new = .ellipse(ShapeElement(rect: zeroRect, color: color, width: width))
+        case .pen:
+            // The drag appends points through moveHandle(.end).
+            new = .pen(PenElement(points: [p], color: color, width: width, opacity: controller.penOpacity)); role = .end
         case .pixelate:
             new = .pixelate(RedactionElement(rect: zeroRect, amount: controller.pixelateAmount))
         case .stamp:

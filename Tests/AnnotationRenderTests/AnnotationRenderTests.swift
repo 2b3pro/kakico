@@ -257,6 +257,50 @@ final class AnnotationRenderTests: XCTestCase {
         XCTAssertLessThan(below.r, 40, "nothing drawn below when the tail points right")
     }
 
+    // MARK: - Pen
+
+    private func penDoc(opacity: CGFloat, color: RGBAColor = .yellow) -> Document {
+        var doc = Document(baseImage: .pngData(Data()), canvasSize: CGSize(width: 200, height: 100))
+        doc.add(.pen(PenElement(points: [CGPoint(x: 20, y: 50), CGPoint(x: 100, y: 50), CGPoint(x: 180, y: 50)],
+                                color: color, width: 12, opacity: opacity)))
+        return doc
+    }
+
+    func testOpaquePenPaintsItsColor() {
+        let base = solidImage(CGSize(width: 200, height: 100), color: (1, 1, 1))
+        let out = Renderer.flatten(penDoc(opacity: 1), baseImage: base, scale: 1)!
+        let p = samplePixel(out, x: 100, y: 50)
+        XCTAssertGreaterThan(p.r, 240); XCTAssertLessThan(p.b, 20)
+    }
+
+    /// Half opacity over white lands halfway between white and the color.
+    func testHighlighterOpacityBlendsWithTheBase() {
+        let base = solidImage(CGSize(width: 200, height: 100), color: (1, 1, 1))
+        let out = Renderer.flatten(penDoc(opacity: 0.5), baseImage: base, scale: 1)!
+        let p = samplePixel(out, x: 100, y: 50)
+        XCTAssertGreaterThan(p.r, 240)
+        XCTAssertEqual(p.b, 128, accuracy: 12, "blue channel should be about half of white")
+        XCTAssertEqual(samplePixel(out, x: 100, y: 80).b, 255, "off the stroke stays white")
+    }
+
+    /// A self-crossing translucent stroke must not darken where it overlaps.
+    func testTranslucentStrokeDoesNotDoubleUpOnSelfOverlap() {
+        let base = solidImage(CGSize(width: 200, height: 100), color: (1, 1, 1))
+        var doc = Document(baseImage: .pngData(Data()), canvasSize: CGSize(width: 200, height: 100))
+        doc.add(.pen(PenElement(points: [CGPoint(x: 20, y: 50), CGPoint(x: 180, y: 50), CGPoint(x: 20, y: 50)],
+                                color: .yellow, width: 12, opacity: 0.5)))
+        let out = Renderer.flatten(doc, baseImage: base, scale: 1)!
+        XCTAssertEqual(samplePixel(out, x: 100, y: 50).b, 128, accuracy: 12)
+    }
+
+    func testSinglePointPenDrawsADot() {
+        let base = solidImage(CGSize(width: 100, height: 100), color: (1, 1, 1))
+        var doc = Document(baseImage: .pngData(Data()), canvasSize: CGSize(width: 100, height: 100))
+        doc.add(.pen(PenElement(points: [CGPoint(x: 50, y: 50)], color: .red, width: 10, opacity: 1)))
+        let out = Renderer.flatten(doc, baseImage: base, scale: 1)!
+        XCTAssertLessThan(samplePixel(out, x: 50, y: 50).g, 100)
+    }
+
     // MARK: - Redaction render cache
 
     /// Per-pixel gradient: unlike a solid or two-band image, every pixelate

@@ -257,6 +257,7 @@ struct ToolPalette: View {
     @State private var showsStrokeWidth = false
     @State private var showsColorPresets = false
     @State private var showsTextStyle = false
+    @State private var showsPenOpacity = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
@@ -331,6 +332,36 @@ struct ToolPalette: View {
                     )
                 }
                 .padding(12)
+            }
+
+            if controller.editsPenOpacity {
+                Button {
+                    showsPenOpacity.toggle()
+                } label: {
+                    tileIcon("circle.lefthalf.filled", tint: MiroTheme.textSecondary(scheme))
+                }
+                .buttonStyle(MiroTileButtonStyle())
+                .help("Opacity (lower for highlighting)")
+                .popover(isPresented: $showsPenOpacity, arrowEdge: .trailing) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "circle.lefthalf.filled")
+                            .foregroundStyle(MiroTheme.textSecondary(scheme))
+                        MiroSlider(
+                            value: $controller.penOpacity,
+                            range: PenElement.opacityRange,
+                            onEditingChanged: { editing in
+                                if editing { controller.beginInteraction() } else { controller.commitInteraction() }
+                            },
+                            width: 140
+                        )
+                        Text("\(Int((controller.penOpacity * 100).rounded()))%")
+                            .font(.miroCaption)
+                            .monospacedDigit()
+                            .foregroundStyle(MiroTheme.textSecondary(scheme))
+                            .frame(width: 36, alignment: .trailing)
+                    }
+                    .padding(12)
+                }
             }
 
             if controller.editsTextStyle {

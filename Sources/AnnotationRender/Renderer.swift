@@ -96,6 +96,7 @@ public enum Renderer {
         case .line(let e): drawLine(e, in: ctx)
         case .rectangle(let e): drawRect(e, in: ctx)
         case .ellipse(let e): drawEllipse(e, in: ctx)
+        case .pen(let e): drawPen(e, in: ctx)
         case .text(let e): drawText(e, in: ctx)
         case .stamp(let e): drawStamp(e, in: ctx)
         case .pixelate(let e): drawRedaction(e.rect, amount: e.amount, base: base, canvasSize: canvasSize, in: ctx)
@@ -176,6 +177,31 @@ public enum Renderer {
             ctx.closePath()
             ctx.fillPath()
         }
+    }
+
+    /// Freehand stroke through the points, smoothed with quadratic curves
+    /// through segment midpoints. One stroke operation, so self-overlaps do
+    /// not double up when translucent. A lone point draws a round dot. No
+    /// shadow: a highlighter must sit flat on the page.
+    private static func drawPen(_ e: PenElement, in ctx: CGContext) {
+        guard let first = e.points.first else { return }
+        var color = e.color
+        color.a *= e.opacity
+        setStroke(ctx, color, e.width)
+        ctx.beginPath()
+        ctx.move(to: first)
+        if e.points.count < 3 {
+            for p in e.points.dropFirst() { ctx.addLine(to: p) }
+            if e.points.count == 1 { ctx.addLine(to: first) }
+        } else {
+            for i in 1..<(e.points.count - 1) {
+                let p = e.points[i], next = e.points[i + 1]
+                let mid = CGPoint(x: (p.x + next.x) / 2, y: (p.y + next.y) / 2)
+                ctx.addQuadCurve(to: mid, control: p)
+            }
+            ctx.addLine(to: e.points[e.points.count - 1])
+        }
+        ctx.strokePath()
     }
 
     private static func drawRect(_ e: ShapeElement, in ctx: CGContext) {

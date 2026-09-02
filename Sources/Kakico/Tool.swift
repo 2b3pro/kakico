@@ -7,6 +7,7 @@ enum Tool: String, CaseIterable, Identifiable {
     case line
     case rectangle
     case ellipse
+    case pen
     case text
     case stamp
     case pixelate
@@ -21,6 +22,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .line: return "Line"
         case .rectangle: return "Rectangle"
         case .ellipse: return "Ellipse"
+        case .pen: return "Pen"
         case .text: return "Text"
         case .stamp: return "Stamp"
         case .pixelate: return "Pixelate"
@@ -36,6 +38,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .line: return "l"
         case .rectangle: return "r"
         case .ellipse: return "o"
+        case .pen: return "d"
         case .text: return "t"
         case .stamp: return "s"
         case .pixelate: return "p"
@@ -51,6 +54,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .line: return "line.diagonal"
         case .rectangle: return "rectangle"
         case .ellipse: return "circle"
+        case .pen: return "pencil"
         case .text: return "textformat"
         case .stamp: return "mappin.circle"
         case .pixelate: return "squareshape.split.3x3"
@@ -64,6 +68,7 @@ enum Tool: String, CaseIterable, Identifiable {
         switch self {
         case .arrow, .line: return .segment
         case .rectangle, .ellipse: return .shape
+        case .pen: return .pen
         case .text: return .text
         case .select, .stamp, .pixelate, .crop: return nil
         }
@@ -77,6 +82,7 @@ enum Tool: String, CaseIterable, Identifiable {
 enum StrokeWidthGroup {
     case segment
     case shape
+    case pen
     case text
 }
 
@@ -87,6 +93,7 @@ extension Annotation {
         switch self {
         case .arrow, .line: return .segment
         case .rectangle, .ellipse: return .shape
+        case .pen: return .pen
         case .text: return .text
         case .stamp, .pixelate: return nil
         }

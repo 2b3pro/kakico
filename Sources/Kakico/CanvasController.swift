@@ -31,6 +31,11 @@ final class CanvasController {
     var strokeColor: RGBAColor = .red {
         didSet { applyColorToSelection() }
     }
+    /// Opacity for new pen strokes (1 = pen, lower = highlighter); edits the
+    /// selected pen stroke when one is selected (mirrors `strokeWidth`).
+    var penOpacity: CGFloat = 1 {
+        didSet { applyPenOpacityToSelection() }
+    }
     /// Treatment for new text elements; edits the selected text element when
     /// one is selected (mirrors `strokeColor`).
     var textStyle: TextStyle = .shadow {
@@ -62,6 +67,7 @@ final class CanvasController {
         [
             .segment: DefaultStrokeWidth.width(reference: DefaultStrokeWidth.segmentReferenceWidth, forCanvasSize: size),
             .shape: DefaultStrokeWidth.width(reference: DefaultStrokeWidth.shapeReferenceWidth, forCanvasSize: size),
+            .pen: DefaultStrokeWidth.width(reference: DefaultStrokeWidth.penReferenceWidth, forCanvasSize: size),
             .text: DefaultStrokeWidth.width(reference: DefaultStrokeWidth.segmentReferenceWidth, forCanvasSize: size),
         ]
     }
@@ -270,6 +276,14 @@ final class CanvasController {
         return doc.elements[i].pixelateAmount != nil
     }
 
+    /// True when the opacity control applies: the pen tool is active or a
+    /// pen stroke is selected.
+    var editsPenOpacity: Bool {
+        if tool == .pen { return true }
+        guard let sel = selection, let doc = document, let i = doc.index(of: sel) else { return false }
+        return doc.elements[i].opacity != nil
+    }
+
     /// True when the text-style control applies: the text tool is active or a
     /// text element is selected.
     var editsTextStyle: Bool {
@@ -305,6 +319,7 @@ final class CanvasController {
         if let amount = element.pixelateAmount, amount != pixelateAmount { pixelateAmount = amount }
         if let style = element.textStyle, style != textStyle { textStyle = style }
         if let kind = element.stampKind, kind != stampKind { stampKind = kind }
+        if let opacity = element.opacity, opacity != penOpacity { penOpacity = opacity }
     }
 
     /// Shared `didSet` hook for the tool-state properties (stroke width /
@@ -363,6 +378,12 @@ final class CanvasController {
               let current = doc.elements[i].stampKind, current != stampKind else { return }
         let kind = stampKind
         perform { $0.elements[i].stampKind = kind }
+    }
+
+    /// Applies the global pen opacity to the selected stroke. Undo boundaries
+    /// are the caller's job (the slider wraps drags in begin/commitInteraction).
+    private func applyPenOpacityToSelection() {
+        applyToSelection(\.opacity, penOpacity)
     }
 
     /// Applies the global pixelate amount to the selected element. Undo
