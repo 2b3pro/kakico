@@ -201,6 +201,62 @@ final class AnnotationRenderTests: XCTestCase {
         XCTAssertFalse(pixels(plainOnWhite).contains(where: isGray))
     }
 
+    // MARK: - Stamps
+
+    private func stampDoc(_ kind: StampKind, color: RGBAColor = .red) -> Document {
+        var doc = Document(baseImage: .pngData(Data()), canvasSize: CGSize(width: 200, height: 200))
+        doc.add(.stamp(StampElement(center: CGPoint(x: 100, y: 80), radius: 40, kind: kind, color: color)))
+        return doc
+    }
+
+    /// Colored disk, white ring inside it, colored tail below (default
+    /// pointer points down), and white halo just outside the disk.
+    func testStampDrawsDiskRingTailAndHalo() {
+        let base = solidImage(CGSize(width: 200, height: 200), color: (0, 0, 0))
+        let out = Renderer.flatten(stampDoc(.check, color: .red), baseImage: base, scale: 1)!
+
+        let disk = samplePixel(out, x: 100 + 36, y: 80)          // 0.9r, right of center
+        XCTAssertGreaterThan(disk.r, 180); XCTAssertLessThan(disk.g, 90)
+        // The ring is a few pixels wide; scan its band rather than one pixel.
+        let ringHit = (24...34).contains { dy in
+            let p = samplePixel(out, x: 100, y: 80 - dy)
+            return min(p.r, p.g, p.b) > 200
+        }
+        XCTAssertTrue(ringHit, "white ring inside the disk")
+        let tail = samplePixel(out, x: 100, y: 80 + Int(40 * 1.5))
+        XCTAssertGreaterThan(tail.r, 180); XCTAssertLessThan(tail.g, 90)
+        let halo = samplePixel(out, x: 100 - 42, y: 80)         // 1.05r, left of center
+        XCTAssertGreaterThan(min(halo.r, halo.g, halo.b), 180, "white halo outside the disk on black")
+    }
+
+    func testStampGlyphIsWhiteAtItsCenterForBarGlyphs() {
+        let base = solidImage(CGSize(width: 200, height: 200), color: (0, 0, 0))
+        // The cross and exclaim glyphs both cover the disk center.
+        for kind in [StampKind.cross, .exclaim] {
+            let out = Renderer.flatten(stampDoc(kind), baseImage: base, scale: 1)!
+            let p = samplePixel(out, x: 100, y: 80)
+            XCTAssertGreaterThan(min(p.r, p.g, p.b), 200, "\(kind) glyph should be white at the center")
+        }
+    }
+
+    func testEveryStampKindRendersDistinctly() {
+        let base = solidImage(CGSize(width: 200, height: 200), color: (1, 1, 1))
+        let hashes = StampKind.allCases.map { pixelHash(Renderer.flatten(stampDoc($0), baseImage: base, scale: 1)!) }
+        XCTAssertEqual(Set(hashes).count, StampKind.allCases.count)
+    }
+
+    func testStampTailFollowsPointerAngle() {
+        let base = solidImage(CGSize(width: 200, height: 200), color: (0, 0, 0))
+        var doc = Document(baseImage: .pngData(Data()), canvasSize: CGSize(width: 200, height: 200))
+        doc.add(.stamp(StampElement(center: CGPoint(x: 100, y: 100), radius: 40, kind: .heart, color: .red,
+                                    pointerAngle: 0)))   // points right
+        let out = Renderer.flatten(doc, baseImage: base, scale: 1)!
+        let right = samplePixel(out, x: 160, y: 100)
+        XCTAssertGreaterThan(right.r, 180)
+        let below = samplePixel(out, x: 100, y: 160)
+        XCTAssertLessThan(below.r, 40, "nothing drawn below when the tail points right")
+    }
+
     // MARK: - Redaction render cache
 
     /// Per-pixel gradient: unlike a solid or two-band image, every pixelate

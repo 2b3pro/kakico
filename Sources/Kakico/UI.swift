@@ -257,6 +257,7 @@ struct ToolPalette: View {
     @State private var showsStrokeWidth = false
     @State private var showsColorPresets = false
     @State private var showsTextStyle = false
+    @State private var showsStampKind = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
@@ -351,8 +352,61 @@ struct ToolPalette: View {
                     .padding(12)
                 }
             }
+
+            if controller.editsStampKind {
+                Button {
+                    showsStampKind.toggle()
+                } label: {
+                    tileIcon(controller.stampKind.symbol, tint: MiroTheme.textSecondary(scheme))
+                }
+                .buttonStyle(MiroTileButtonStyle())
+                .help("Stamp")
+                .popover(isPresented: $showsStampKind, arrowEdge: .trailing) {
+                    HStack(spacing: 4) {
+                        ForEach(StampKind.allCases, id: \.self) { kind in
+                            Button {
+                                controller.stampKind = kind
+                            } label: {
+                                tileIcon(kind.symbol,
+                                         tint: controller.stampKind == kind ? Color.miroInk : MiroTheme.textSecondary(scheme),
+                                         iconSize: 22)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 11)
+                                            .fill(controller.stampKind == kind ? Color.miroYellow : .clear)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .help(kind.label)
+                        }
+                    }
+                    .padding(8)
+                }
+            }
         }
         .miroFloatingPanel()
+    }
+}
+
+extension StampKind {
+    var label: String {
+        switch self {
+        case .check: return "Check"
+        case .cross: return "Cross"
+        case .exclaim: return "Exclamation"
+        case .question: return "Question"
+        case .heart: return "Heart"
+        }
+    }
+
+    /// SF Symbol standing in for the glyph in the palette.
+    var symbol: String {
+        switch self {
+        case .check: return "checkmark.circle.fill"
+        case .cross: return "xmark.circle.fill"
+        case .exclaim: return "exclamationmark.circle.fill"
+        case .question: return "questionmark.circle.fill"
+        case .heart: return "heart.circle.fill"
+        }
     }
 }
 

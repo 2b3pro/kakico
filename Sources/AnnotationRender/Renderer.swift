@@ -97,6 +97,7 @@ public enum Renderer {
         case .rectangle(let e): drawRect(e, in: ctx)
         case .ellipse(let e): drawEllipse(e, in: ctx)
         case .text(let e): drawText(e, in: ctx)
+        case .stamp(let e): drawStamp(e, in: ctx)
         case .pixelate(let e): drawRedaction(e.rect, amount: e.amount, base: base, canvasSize: canvasSize, in: ctx)
         }
     }
@@ -272,6 +273,29 @@ public enum Renderer {
                 }
             }
         }
+    }
+
+    /// Skitch pin: white halo around the silhouette, drop shadow, colored
+    /// fill, a thin white ring inside the disk, and the white glyph.
+    private static func drawStamp(_ e: StampElement, in ctx: CGContext) {
+        let r = e.radius
+        let pin = StampPaths.pinPath(for: e)
+        withShadow(forStrokeWidth: r * 0.3, in: ctx) {
+            ctx.setLineJoin(.round)
+            ctx.setStrokeColor(red: 1, green: 1, blue: 1, alpha: 1)
+            ctx.setLineWidth(r * 0.12)
+            ctx.addPath(pin)
+            ctx.strokePath()
+            setFill(ctx, e.color)
+            ctx.addPath(pin)
+            ctx.fillPath()
+        }
+        ctx.setStrokeColor(red: 1, green: 1, blue: 1, alpha: 1)
+        ctx.setLineWidth(r * 0.07)
+        ctx.strokeEllipse(in: e.diskRect.insetBy(dx: r * 0.28, dy: r * 0.28))
+        ctx.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
+        ctx.addPath(StampPaths.path(for: e.kind, in: e.diskRect.insetBy(dx: r * 0.5, dy: r * 0.5)))
+        ctx.fillPath()
     }
 
     private static func drawRedaction(_ rect: CGRect, amount: CGFloat,

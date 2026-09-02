@@ -36,6 +36,10 @@ final class CanvasController {
     var textStyle: TextStyle = .shadow {
         didSet { applyTextStyleToSelection() }
     }
+    /// Glyph for new stamps; edits the selected stamp when one is selected.
+    var stampKind: StampKind = .check {
+        didSet { applyStampKindToSelection() }
+    }
     var strokeWidth: CGFloat = DefaultStrokeWidth.segmentReferenceWidth {
         didSet {
             rememberStrokeWidth()
@@ -274,6 +278,14 @@ final class CanvasController {
         return doc.elements[i].textStyle != nil
     }
 
+    /// True when the stamp-kind control applies: the stamp tool is active or
+    /// a stamp element is selected.
+    var editsStampKind: Bool {
+        if tool == .stamp { return true }
+        guard let sel = selection, let doc = document, let i = doc.index(of: sel) else { return false }
+        return doc.elements[i].stampKind != nil
+    }
+
     /// Adopts the selected element's stroke width and color so the controls
     /// start from the current values (and new elements of its group inherit
     /// them).
@@ -292,6 +304,7 @@ final class CanvasController {
         if let color = element.color, color != strokeColor { strokeColor = color }
         if let amount = element.pixelateAmount, amount != pixelateAmount { pixelateAmount = amount }
         if let style = element.textStyle, style != textStyle { textStyle = style }
+        if let kind = element.stampKind, kind != stampKind { stampKind = kind }
     }
 
     /// Shared `didSet` hook for the tool-state properties (stroke width /
@@ -341,6 +354,15 @@ final class CanvasController {
               let current = doc.elements[i].textStyle, current != textStyle else { return }
         let style = textStyle
         perform { $0.elements[i].textStyle = style }
+    }
+
+    /// Applies the global stamp kind to the selected stamp as one undo step.
+    private func applyStampKindToSelection() {
+        guard !isSyncing else { return }
+        guard let sel = selection, let doc = document, let i = doc.index(of: sel),
+              let current = doc.elements[i].stampKind, current != stampKind else { return }
+        let kind = stampKind
+        perform { $0.elements[i].stampKind = kind }
     }
 
     /// Applies the global pixelate amount to the selected element. Undo
