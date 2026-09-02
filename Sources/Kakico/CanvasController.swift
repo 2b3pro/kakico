@@ -31,6 +31,11 @@ final class CanvasController {
     var strokeColor: RGBAColor = .red {
         didSet { applyColorToSelection() }
     }
+    /// Treatment for new text elements; edits the selected text element when
+    /// one is selected (mirrors `strokeColor`).
+    var textStyle: TextStyle = .shadow {
+        didSet { applyTextStyleToSelection() }
+    }
     var strokeWidth: CGFloat = DefaultStrokeWidth.segmentReferenceWidth {
         didSet {
             rememberStrokeWidth()
@@ -261,6 +266,14 @@ final class CanvasController {
         return doc.elements[i].pixelateAmount != nil
     }
 
+    /// True when the text-style control applies: the text tool is active or a
+    /// text element is selected.
+    var editsTextStyle: Bool {
+        if tool == .text { return true }
+        guard let sel = selection, let doc = document, let i = doc.index(of: sel) else { return false }
+        return doc.elements[i].textStyle != nil
+    }
+
     /// Adopts the selected element's stroke width and color so the controls
     /// start from the current values (and new elements of its group inherit
     /// them).
@@ -278,6 +291,7 @@ final class CanvasController {
         rememberWidth(strokeWidth, for: element.strokeWidthGroup)
         if let color = element.color, color != strokeColor { strokeColor = color }
         if let amount = element.pixelateAmount, amount != pixelateAmount { pixelateAmount = amount }
+        if let style = element.textStyle, style != textStyle { textStyle = style }
     }
 
     /// Shared `didSet` hook for the tool-state properties (stroke width /
@@ -317,6 +331,16 @@ final class CanvasController {
         } else {
             applyToSelection(\.strokeWidth, strokeWidth)
         }
+    }
+
+    /// Applies the global text style to the selected text element as one undo
+    /// step; the picker is discrete, so there is no drag to coalesce.
+    private func applyTextStyleToSelection() {
+        guard !isSyncing else { return }
+        guard let sel = selection, let doc = document, let i = doc.index(of: sel),
+              let current = doc.elements[i].textStyle, current != textStyle else { return }
+        let style = textStyle
+        perform { $0.elements[i].textStyle = style }
     }
 
     /// Applies the global pixelate amount to the selected element. Undo

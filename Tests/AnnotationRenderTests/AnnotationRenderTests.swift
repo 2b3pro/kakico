@@ -158,6 +158,49 @@ final class AnnotationRenderTests: XCTestCase {
         }
     }
 
+    // MARK: - Text styles
+
+    private func textDoc(style: TextStyle, color: RGBAColor) -> Document {
+        var doc = Document(baseImage: .pngData(Data()), canvasSize: CGSize(width: 200, height: 80))
+        doc.add(.text(TextElement(origin: CGPoint(x: 10, y: 10), size: CGSize(width: 180, height: 60),
+                                  string: "Hello", font: FontSpec(pointSize: 36), color: color, style: style)))
+        return doc
+    }
+
+    private func pixels(_ image: CGImage) -> [(r: Int, g: Int, b: Int)] {
+        (0..<image.height).flatMap { y in (0..<image.width).map { x in samplePixel(image, x: x, y: y) } }
+    }
+
+    /// Outline style draws a black outline around the glyphs; plain does not.
+    func testOutlineStyleAddsBlackOutline() {
+        let base = solidImage(CGSize(width: 200, height: 80), color: (1, 1, 1))
+        let isBlack: ((r: Int, g: Int, b: Int)) -> Bool = { $0.r < 60 && $0.g < 60 && $0.b < 60 }
+        let outlined = Renderer.flatten(textDoc(style: .outline, color: .yellow), baseImage: base, scale: 1)!
+        XCTAssertTrue(pixels(outlined).contains(where: isBlack), "outline style should produce black pixels")
+        let plain = Renderer.flatten(textDoc(style: .plain, color: .yellow), baseImage: base, scale: 1)!
+        XCTAssertFalse(pixels(plain).contains(where: isBlack), "plain style should not produce black pixels")
+    }
+
+    /// Shadow style draws a white halo around the glyphs (visible on black)
+    /// and a neutral drop shadow (visible on white); plain does neither.
+    func testShadowStyleAddsWhiteHaloAndShadow() {
+        let black = solidImage(CGSize(width: 200, height: 80), color: (0, 0, 0))
+        let isWhite: ((r: Int, g: Int, b: Int)) -> Bool = { $0.r > 200 && $0.g > 200 && $0.b > 200 }
+        let shadowed = Renderer.flatten(textDoc(style: .shadow, color: .red), baseImage: black, scale: 1)!
+        XCTAssertTrue(pixels(shadowed).contains(where: isWhite), "shadow style should halo the glyphs in white")
+        let plain = Renderer.flatten(textDoc(style: .plain, color: .red), baseImage: black, scale: 1)!
+        XCTAssertFalse(pixels(plain).contains(where: isWhite))
+
+        let white = solidImage(CGSize(width: 200, height: 80), color: (1, 1, 1))
+        let isGray: ((r: Int, g: Int, b: Int)) -> Bool = {
+            abs($0.r - $0.g) <= 4 && abs($0.g - $0.b) <= 4 && $0.r < 235 && $0.r > 40
+        }
+        let onWhite = Renderer.flatten(textDoc(style: .shadow, color: .red), baseImage: white, scale: 1)!
+        XCTAssertTrue(pixels(onWhite).contains(where: isGray), "shadow style should cast a gray shadow")
+        let plainOnWhite = Renderer.flatten(textDoc(style: .plain, color: .red), baseImage: white, scale: 1)!
+        XCTAssertFalse(pixels(plainOnWhite).contains(where: isGray))
+    }
+
     // MARK: - Redaction render cache
 
     /// Per-pixel gradient: unlike a solid or two-band image, every pixelate
