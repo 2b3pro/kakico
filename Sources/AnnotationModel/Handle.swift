@@ -10,6 +10,8 @@ public enum HandleRole: Codable, Equatable, Hashable, Sendable {
     case topRight
     case bottomLeft
     case bottomRight
+    case left          // mid-left edge (text width)
+    case right         // mid-right edge (text width)
 
     /// The diagonally opposite corner — the anchor when resizing by this
     /// corner. Nil for non-corner roles.
@@ -19,7 +21,7 @@ public enum HandleRole: Codable, Equatable, Hashable, Sendable {
         case .topRight: return .bottomLeft
         case .bottomLeft: return .topRight
         case .bottomRight: return .topLeft
-        case .move, .start, .end: return nil
+        case .move, .start, .end, .left, .right: return nil
         }
     }
 }
