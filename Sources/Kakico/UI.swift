@@ -341,18 +341,57 @@ struct ToolPalette: View {
                 .buttonStyle(MiroTileButtonStyle())
                 .help("Text style")
                 .popover(isPresented: $showsTextStyle, arrowEdge: .trailing) {
-                    Picker("Text style", selection: $controller.textStyle) {
-                        ForEach(TextStyle.allCases, id: \.self) { style in
-                            Label(style.label, systemImage: style.symbol).tag(style)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Picker("Text style", selection: $controller.textStyle) {
+                            ForEach(TextStyle.allCases, id: \.self) { style in
+                                Label(style.label, systemImage: style.symbol).tag(style)
+                            }
+                        }
+                        .pickerStyle(.inline)
+                        .labelsHidden()
+                        if controller.textStyle != .plain {
+                            TextOutlineColorRow(controller: controller)
                         }
                     }
-                    .pickerStyle(.inline)
-                    .labelsHidden()
                     .padding(12)
                 }
             }
         }
         .miroFloatingPanel()
+    }
+}
+
+/// White-or-black choice for the text halo/outline color.
+private struct TextOutlineColorRow: View {
+    var controller: CanvasController
+    @Environment(\.colorScheme) private var scheme
+
+    private static let choices: [(name: String, color: RGBAColor)] = [("White", .white), ("Black", .black)]
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(controller.textStyle == .outline ? "Outline" : "Halo")
+                .font(.miroCaption)
+                .foregroundStyle(MiroTheme.textSecondary(scheme))
+            ForEach(Self.choices, id: \.name) { choice in
+                Button {
+                    controller.textOutlineColor = choice.color
+                } label: {
+                    Circle()
+                        .fill(Color(choice.color))
+                        .overlay(Circle().strokeBorder(Color.miroDivider, lineWidth: 1))
+                        .frame(width: 18, height: 18)
+                        .padding(3)
+                        .overlay {
+                            if controller.textOutlineColor == choice.color {
+                                Circle().strokeBorder(Color.miroBlue, lineWidth: 2)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .help(choice.name)
+            }
+        }
     }
 }
 
