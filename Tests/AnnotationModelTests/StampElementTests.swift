@@ -31,6 +31,18 @@ final class StampElementTests: XCTestCase {
         XCTAssertEqual(s.radius, 20, "swinging the tail must not resize")
     }
 
+    /// Creation is click-then-drag: the drag point relative to the center
+    /// sets the direction, and a jittery plain click leaves it pointing down.
+    func testCreationDragSetsDirectionButClickJitterDoesNot() {
+        var s = stamp()
+        s.moveHandle(.end, to: CGPoint(x: 101, y: 99))     // 1-2px wobble
+        XCTAssertEqual(s.pointerAngle, .pi / 2, accuracy: 0.001)
+        s.moveHandle(.end, to: CGPoint(x: 100, y: 90))     // 10px up, beyond the dead zone
+        XCTAssertEqual(s.pointerAngle, -.pi / 2, accuracy: 0.001)
+        s.moveHandle(.end, to: CGPoint(x: 70, y: 100))     // then left
+        XCTAssertEqual(abs(s.pointerAngle), .pi, accuracy: 0.001)
+    }
+
     func testResizeHandleChangesRadiusAndClamps() {
         var s = stamp()
         s.moveHandle(.topRight, to: CGPoint(x: 130, y: 60))

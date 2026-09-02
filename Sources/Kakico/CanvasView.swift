@@ -467,14 +467,15 @@ final class CanvasNSView: NSView {
         case .pixelate:
             new = .pixelate(RedactionElement(rect: zeroRect, amount: controller.pixelateAmount))
         case .stamp:
-            // Stamps are placed at a default size; the click-drag moves the
-            // new stamp rather than sizing it.
+            // Stamps are placed at a default size at the click point; the
+            // click-drag swings the tail so it points the way you drag. A
+            // plain click keeps the default (down) direction.
             let canvasSize = controller.document?.canvasSize ?? DefaultSizeScale.referenceCanvasSize
             let stamp = StampElement(center: p, radius: StampElement.defaultRadius(forCanvasSize: canvasSize),
                                      kind: controller.stampKind, color: color)
             controller.document?.add(.stamp(stamp))
             controller.selection = stamp.id
-            drag = .moving(stamp.id, last: p)
+            drag = .creating(stamp.id, .end)
             return
         default:
             return
