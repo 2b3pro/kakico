@@ -262,6 +262,7 @@ struct ToolPalette: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsStrokeWidth = false
     @State private var showsColorPresets = false
+    @State private var showsTextStyle = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
@@ -336,8 +337,47 @@ struct ToolPalette: View {
                 }
                 .padding(12)
             }
+
+            if controller.editsTextStyle {
+                Button {
+                    showsTextStyle.toggle()
+                } label: {
+                    tileIcon(controller.textStyle.symbol, tint: MiroTheme.textSecondary(scheme))
+                }
+                .buttonStyle(MiroTileButtonStyle())
+                .help("Text style")
+                .popover(isPresented: $showsTextStyle, arrowEdge: .trailing) {
+                    Picker("Text style", selection: $controller.textStyle) {
+                        ForEach(TextStyle.allCases, id: \.self) { style in
+                            Label(style.label, systemImage: style.symbol).tag(style)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                    .padding(12)
+                }
+            }
         }
         .miroFloatingPanel()
+    }
+}
+
+extension TextStyle {
+    var label: String {
+        switch self {
+        case .shadow: return "Shadow"
+        case .outline: return "Outline"
+        case .plain: return "Plain"
+        }
+    }
+
+    /// SF Symbol for the palette button and picker rows.
+    var symbol: String {
+        switch self {
+        case .shadow: return "shadow"
+        case .outline: return "a.square"
+        case .plain: return "textformat"
+        }
     }
 }
 

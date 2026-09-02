@@ -160,6 +160,58 @@ final class CanvasControllerTests: XCTestCase {
 
     // MARK: - Tool switch clears selection
 
+    // MARK: - Text style
+
+    private func addText(_ controller: CanvasController, style: TextStyle) -> ElementID {
+        let text = TextElement(origin: CGPoint(x: 10, y: 10), string: "hi", style: style)
+        controller.document?.add(.text(text))
+        return text.id
+    }
+
+    func testTextStyleDefaultsToShadow() {
+        XCTAssertEqual(CanvasController().textStyle, .shadow)
+    }
+
+    func testSelectingTextAdoptsItsStyle() {
+        let controller = makeLoadedController()
+        let id = addText(controller, style: .outline)
+        controller.selection = id
+        XCTAssertEqual(controller.textStyle, .outline)
+        XCTAssertFalse(controller.canUndo, "selection sync must not register an undo step")
+    }
+
+    func testChangingStyleEditsSelectedTextAndIsUndoable() {
+        let controller = makeLoadedController()
+        let id = addText(controller, style: .shadow)
+        controller.selection = id
+        controller.textStyle = .plain
+        XCTAssertEqual(controller.document?.elements.first?.textStyle, .plain)
+        XCTAssertTrue(controller.canUndo)
+        controller.undo()
+        XCTAssertEqual(controller.document?.elements.first?.textStyle, .shadow)
+    }
+
+    func testChangingStyleLeavesNonTextSelectionUntouched() {
+        let controller = makeLoadedController()
+        let arrow = SegmentElement(start: .zero, end: CGPoint(x: 50, y: 50))
+        controller.document?.add(.arrow(arrow))
+        controller.selection = arrow.id
+        controller.textStyle = .plain
+        XCTAssertEqual(controller.document?.elements.first, .arrow(arrow))
+        XCTAssertFalse(controller.canUndo)
+    }
+
+    func testTextStyleControlShowsForTextToolOrTextSelection() {
+        let controller = makeLoadedController()
+        XCTAssertFalse(controller.editsTextStyle)
+        controller.tool = .text
+        XCTAssertTrue(controller.editsTextStyle)
+        controller.tool = .select
+        let id = addText(controller, style: .shadow)
+        controller.selection = id
+        XCTAssertTrue(controller.editsTextStyle)
+    }
+
     func testToolSwitchClearsSelection() {
         let controller = makeLoadedController()
         let seg = SegmentElement(start: .zero, end: CGPoint(x: 100, y: 100))

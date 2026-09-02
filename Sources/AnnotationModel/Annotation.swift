@@ -65,6 +65,20 @@ public enum Annotation: Codable, Equatable, Sendable, Identifiable {
         }
     }
 
+    /// Text style of a text element; nil for other kinds. Setting is a no-op
+    /// for those kinds and for nil.
+    public var textStyle: TextStyle? {
+        get {
+            guard case .text(let e) = self else { return nil }
+            return e.style
+        }
+        set {
+            guard case .text(var e) = self, let style = newValue else { return }
+            e.style = style
+            self = .text(e)
+        }
+    }
+
     /// Color of the wrapped element; nil for kinds without one (pixelate).
     /// Setting is a no-op for those kinds and for nil.
     public var color: RGBAColor? {
