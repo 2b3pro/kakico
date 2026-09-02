@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import AnnotationModel
+import AnnotationRender
 
 // Mouse-down helpers for CanvasNSView: element creation, crop grab, and the
 // pen's Shift-click straight line. Split from CanvasView.swift for size.
@@ -85,6 +86,16 @@ extension CanvasNSView {
         controller.document?.add(new)
         controller.selection = new.id
         drag = .creating(new.id, role)
+    }
+
+    /// Moves a handle. Text wraps at its width, so its height is re-measured
+    /// afterwards: a narrower box grows instead of clipping lines.
+    static func moveHandle(_ element: inout Annotation, _ role: HandleRole, to p: CGPoint) {
+        element.moveHandle(role, to: p)
+        if case .text(var t) = element {
+            t.size.height = Renderer.suggestedSize(for: t).height
+            element = .text(t)
+        }
     }
 
     func createText(at p: CGPoint) {

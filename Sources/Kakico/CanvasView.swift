@@ -497,15 +497,7 @@ final class CanvasNSView: NSView {
             controller.document?.mutate(id) { $0.translate(by: delta) }
             drag = .moving(id, last: p)
         case .handle(let id, let role), .creating(let id, let role):
-            controller.document?.mutate(id) {
-                $0.moveHandle(role, to: p)
-                // Text wraps at its width: re-measure the height so a
-                // narrower box grows instead of clipping lines.
-                if case .text(var t) = $0 {
-                    t.size.height = Renderer.suggestedSize(for: t).height
-                    $0 = .text(t)
-                }
-            }
+            controller.document?.mutate(id) { Self.moveHandle(&$0, role, to: p) }
         case .cropping(let anchor):
             controller.document?.crop = CGRect(corner: anchor, p)
         case .movingCrop(let last):
